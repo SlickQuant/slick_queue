@@ -1,2 +1,4 @@
 # SlickQueue
-A robust, ring buffer based, lock-free, C++ MPMC queue
+A robust, ring buffer based, lock-free, header-only, C++ MPMC queue
+
+
