@@ -34,3 +34,6 @@
 
 cmake-build-*
 build
+.vs
+.vscode
+out
