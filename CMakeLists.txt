@@ -7,6 +7,6 @@ project(slick_queue
 set(CMAKE_CXX_STANDARD 17)
 
 add_library(slick_queue INTERFACE)
-target_include_directories(slick_queue INTERFACE "include")
+target_include_directories(slick_queue INTERFACE include)
 
 add_subdirectory(tests EXCLUDE_FROM_ALL)

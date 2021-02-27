@@ -31,9 +31,8 @@
 *.out
 *.app
 
-
-cmake-build-*
-build
 .vs
 .vscode
+cmake-build-*
+build
 out
