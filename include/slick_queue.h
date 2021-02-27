@@ -1,5 +1,5 @@
 /********************************************************************************
- * Copyright (c) 2020, SlickTech
+ * Copyright (c) 2020-0201, SlickTech
  * All rights reserved
  *
  * This file is part of the SlickQueue. Redistribution and use in source and
