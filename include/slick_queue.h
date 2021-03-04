@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <atomic>
 #include <stdexcept>
+#include <string>
 
 #if defined(_MSC_VER)
 #include <windows.h>
@@ -35,23 +36,28 @@ class SlickQueue {
   std::atomic_uint_fast64_t* reserved_;
   std::atomic_uint_fast64_t reserved_local_{ 0 };
   bool own_;
+  bool use_shm_;
 #if defined(_MSC_VER)
   HANDLE hMapFile_ = nullptr;
   LPVOID lpvMem_ = nullptr;
 #endif
 
  public:
-  SlickQueue(const char* const shm_name = nullptr) noexcept
+  SlickQueue(const char* const shm_name = nullptr, bool open_only = false) noexcept
     : data_(shm_name ? nullptr : new T[SIZE + 1024])   // add some buffer at the end
     , control_(shm_name ? nullptr : new slot[SIZE + 1024])
     , reserved_(shm_name ? nullptr : &reserved_local_)
-    , own_(true)
+    , own_(shm_name == nullptr)
+    , use_shm_(shm_name != nullptr)
   {
     if (shm_name) {
-      allocateShmData(shm_name);
+      allocateShmData(shm_name, open_only);
     }
-    // invalidate first slot
-    control_[0].data_index.store(1, std::memory_order_relaxed);
+
+    if (own_) {
+      // invalidate first slot
+      control_[0].data_index.store(1, std::memory_order_relaxed);
+    }
   }
   virtual ~SlickQueue() noexcept {
 #if defined(_MSC_VER)
@@ -61,10 +67,12 @@ class SlickQueue {
     }
 
     if (hMapFile_) {
+      printf("Destroy MapFile %p\n", hMapFile_);
       CloseHandle(hMapFile_);
       hMapFile_ = nullptr;
     }
-    else {
+    
+    if (!use_shm_) {
         delete [] data_;
         data_ = nullptr;
 
@@ -127,35 +135,56 @@ class SlickQueue {
  private:
 
 #if defined(_MSC_VER)
-  void allocateShmData(const char* const shm_name) {
+  void allocateShmData(const char* const shm_name, bool open_only) {
     auto BF_SZ = 64 + sizeof(slot) * (SIZE + 1024) + sizeof(T) * (SIZE + 1024);
-    HANDLE hMapFile = CreateFileMapping(
-        INVALID_HANDLE_VALUE,               // use paging file
-        NULL,                               // default security
-        PAGE_READWRITE,                     // read/write access
-        0,                                  // maximum object size (high-order DWORD)
-        BF_SZ,                              // maximum object size (low-order DWORD)
-        (LPCWSTR)shm_name                   // name of mapping object
-    );
-
-    own_ = false;
-    auto err = GetLastError();
-    if (hMapFile == NULL) {
-        throw std::runtime_error("Failed to create shm. err=" + std::to_string(err));
+    HANDLE hMapFile = NULL;
+    if (open_only) {
+      hMapFile = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE,  (LPCWSTR)shm_name);
+      own_ = false;
+      auto err = GetLastError();
+      if (hMapFile == NULL) {
+          throw std::runtime_error("Failed to open shm. err=" + std::to_string(err));
+      }
     }
+    else {
+      hMapFile = CreateFileMapping(
+          INVALID_HANDLE_VALUE,               // use paging file
+          NULL,                               // default security
+          PAGE_READWRITE,                     // read/write access
+          0,                                  // maximum object size (high-order DWORD)
+          BF_SZ,                              // maximum object size (low-order DWORD)
+          (LPCWSTR)shm_name                   // name of mapping object
+      );
 
-    if (err != ERROR_ALREADY_EXISTS) {
-        own_ = true;
+      own_ = false;
+      auto err = GetLastError();
+      if (hMapFile == NULL) {
+          throw std::runtime_error("Failed to create shm. err=" + std::to_string(err));
+      }
+
+      if (err != ERROR_ALREADY_EXISTS) {
+          own_ = true;
+      }
+
+      printf("%s MapFile created %p\n", shm_name, hMapFile);
     }
 
     void* lpvMem = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
     if (!lpvMem) {
-        throw std::runtime_error("Failed to map shm. err=" + std::to_string(GetLastError()));
+      auto err = GetLastError();
+      throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
     }
 
-    reserved_ = new (lpvMem) std::atomic_uint_fast64_t{ 0 };
-    control_ = new ((uint8_t*)lpvMem + 64) slot[SIZE + 1024];
-    data_ = new ((uint8_t*)lpvMem + 64 + sizeof(slot) * (SIZE + 1024)) T[SIZE + 1024];
+    if (own_) {
+      reserved_ = new (lpvMem) std::atomic_uint_fast64_t{ 0 };
+      control_ = new ((uint8_t*)lpvMem + 64) slot[SIZE + 1024];
+      data_ = new ((uint8_t*)lpvMem + 64 + sizeof(slot) * (SIZE + 1024)) T[SIZE + 1024];
+    }
+    else {
+      reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
+      control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem + 64);
+      data_ = reinterpret_cast<T*>((uint8_t*)lpvMem + 64 + sizeof(slot) * (SIZE + 1024));
+    }
   }
 #else
   void allocateShmData(const char* const shm_name) noexcept {
