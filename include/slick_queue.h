@@ -181,7 +181,7 @@ class SlickQueue {
       data_ = new ((uint8_t*)lpvMem + 64 + sizeof(slot) * (SIZE + 1024)) T[SIZE + 1024];
     }
     else {
-      reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
+      reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem);
       control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem + 64);
       data_ = reinterpret_cast<T*>((uint8_t*)lpvMem + 64 + sizeof(slot) * (SIZE + 1024));
     }
