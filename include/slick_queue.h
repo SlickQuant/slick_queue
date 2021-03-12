@@ -80,7 +80,6 @@ public:
         }
 
         if (hMapFile_) {
-            printf("Destroy MapFile %p\n", hMapFile_);
             CloseHandle(hMapFile_);
             hMapFile_ = nullptr;
         }
@@ -139,12 +138,6 @@ public:
     }
 
     void reset() noexcept {
-        auto next = reserved_->load(std::memory_order_relaxed);
-        if (next <= mask_) {
-            // data hasn't wrapped yet, need to invalidate
-            memset(control_, 0, sizeof(slot) * size_);
-            memset(data_, 0, sizeof(T) * size_);
-        }
         // invalidate first slot
         control_[0].data_index.store(1, std::memory_order_release);
         reserved_->store(0, std::memory_order_release);
@@ -196,8 +189,6 @@ private:
             if (err != ERROR_ALREADY_EXISTS) {
                 own_ = true;
             }
-
-            printf("%s MapFile created %p\n", shm_name, hMapFile);
         }
 
         void* lpvMem = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
@@ -211,7 +202,6 @@ private:
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
             control_ = new ((uint8_t*)lpvMem + 64) slot[size_];
             data_ = new ((uint8_t*)lpvMem + 64 + sizeof(slot) * size_) T[size_];
-            printf("%s shm memory created %p size: %d(%d)\n", shm_name, lpvMem, *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic_uint_fast64_t)), mask_);
         }
         else {
             reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem);
