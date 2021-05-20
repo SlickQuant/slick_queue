@@ -61,7 +61,7 @@ public:
 
         if (own_) {
             // invalidate first slot
-            control_[0].data_index.store(1, std::memory_order_relaxed);
+            control_[0].data_index.store(-1, std::memory_order_relaxed);
         }
     }
 
@@ -127,19 +127,36 @@ public:
             read_index = 0;
         }
 
-        if (index != read_index) {
+        if (index == -1 || index < read_index) {
             // data not ready yet
             return std::make_pair(nullptr, 0);
         }
 
         auto& data = data_[read_index & mask_];
-        read_index += slot.size;
+        read_index = slot.data_index + slot.size;
         return std::make_pair(&data, slot.size);
+    }
+
+    /**
+    * Read the last data in the queue
+    *
+    * This function is safe only for fixed sized data and alwasy reserve, publish one data at a time
+    */
+    T* read_last() noexcept {
+        auto reserved = reserved_->load(std::memory_order_relaxed);
+        auto index = reserved - 1;
+        if (reserved == 0) {
+            return nullptr;
+        }
+
+        // wait for the data published
+        while (control_[index & mask_].data_index.load(std::memory_order_relaxed) != index);
+        return &data_[index & mask_];
     }
 
     void reset() noexcept {
         // invalidate first slot
-        control_[0].data_index.store(1, std::memory_order_release);
+        control_[0].data_index.store(-1, std::memory_order_release);
         reserved_->store(0, std::memory_order_release);
     }
 
