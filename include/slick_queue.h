@@ -138,19 +138,26 @@ public:
     }
 
     /**
-    * Read the last data in the queue
-    *
-    * This function is safe only for fixed sized data and alwasy reserve, publish one data at a time
+    * Read the last published data in the queue
     */
     T* read_last() noexcept {
         auto reserved = reserved_->load(std::memory_order_relaxed);
-        auto index = reserved - 1;
         if (reserved == 0) {
             return nullptr;
         }
+        auto index = reserved - 1;
 
-        // wait for the data published
-        while (control_[index & mask_].data_index.load(std::memory_order_relaxed) != index);
+        // find last published data
+        auto begin = index & mask_;
+        while (control_[index & mask_].data_index.load(std::memory_order_relaxed) != index)
+        {
+            --index;
+            if ((index & mask_) == begin    // looped entire queue 
+                || index >= reserved)       // passed 0
+            {
+                return nullptr;
+            }
+        }
         return &data_[index & mask_];
     }
 
