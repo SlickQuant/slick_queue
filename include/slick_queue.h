@@ -20,6 +20,12 @@
 #if defined(_MSC_VER)
 #include <windows.h>
 #include <tchar.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cerrno>
 #endif
 
 namespace slick {
@@ -42,6 +48,11 @@ class SlickQueue {
 #if defined(_MSC_VER)
     HANDLE hMapFile_ = nullptr;
     LPVOID lpvMem_ = nullptr;
+#else
+    int fd_ = -1;
+    void* lpvMem_ = nullptr;
+    size_t shm_size_ = 0;
+    std::string shm_name_;
 #endif
 
 public:
@@ -83,8 +94,21 @@ public:
             CloseHandle(hMapFile_);
             hMapFile_ = nullptr;
         }
+#else
+        if (lpvMem_) {
+            munmap(lpvMem_, shm_size_);
+            lpvMem_ = nullptr;
+        }
+
+        if (fd_ != -1) {
+            close(fd_);
+            if (own_ && !shm_name_.empty()) {
+                shm_unlink(shm_name_.c_str());
+            }
+            fd_ = -1;
+        }
 #endif
-        
+
         if (!use_shm_) {
             delete[] data_;
             data_ = nullptr;
@@ -234,7 +258,62 @@ private:
         }
     }
 #else
-    void allocateShmData(const char* const shm_name) noexcept {
+    void allocate_shm_data(const char* const shm_name, bool open_only) {
+        std::string name = shm_name ? shm_name : "";
+        if (!name.empty() && name[0] != '/') {
+            name = "/" + name;
+        }
+        shm_name_ = name;
+
+        int flags = O_RDWR;
+        if (!open_only) {
+            flags |= O_CREAT;
+        }
+        fd_ = shm_open(shm_name_.c_str(), flags, 0666);
+        if (fd_ == -1) {
+            throw std::runtime_error("Failed to open shm. err=" + std::to_string(errno));
+        }
+
+        shm_size_ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+        if (!open_only) {
+            if (ftruncate(fd_, shm_size_) == -1) {
+                int err = errno;
+                close(fd_);
+                fd_ = -1;
+                throw std::runtime_error("Failed to size shm. err=" + std::to_string(err));
+            }
+            own_ = true;
+        } else {
+            struct stat st;
+            if (fstat(fd_, &st) == -1) {
+                int err = errno;
+                close(fd_);
+                fd_ = -1;
+                throw std::runtime_error("Failed to stat shm. err=" + std::to_string(err));
+            }
+            shm_size_ = static_cast<size_t>(st.st_size);
+        }
+
+        lpvMem_ = mmap(nullptr, shm_size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
+        if (lpvMem_ == MAP_FAILED) {
+            int err = errno;
+            close(fd_);
+            fd_ = -1;
+            throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
+        }
+
+        if (own_) {
+            reserved_ = new (lpvMem_) std::atomic_uint_fast64_t{0};
+            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
+            control_ = new (reinterpret_cast<uint8_t*>(lpvMem_) + 64) slot[size_];
+            data_ = new (reinterpret_cast<uint8_t*>(lpvMem_) + 64 + sizeof(slot) * size_) T[size_];
+        } else {
+            reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
+            mask_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) - 1;
+            size_ = mask_ + 1025;
+            control_ = reinterpret_cast<slot*>(reinterpret_cast<uint8_t*>(lpvMem_) + 64);
+            data_ = reinterpret_cast<T*>(reinterpret_cast<uint8_t*>(lpvMem_) + 64 + sizeof(slot) * size_);
+        }
     }
 #endif
 

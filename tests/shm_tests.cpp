@@ -1,17 +1,18 @@
+#define CATCH_CONFIG_NO_POSIX_SIGNALS
 #include "catch.hh"
 #include "../include/slick_queue.h"
 
 using namespace slick;
 
 TEST_CASE("Read empty queue - shm") {
-  SlickQueue<int, 2> queue;
+  SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto read = queue.read(read_cursor);
   REQUIRE(read.first == nullptr);
 }
 
 TEST_CASE( "Reserve - shm") {
-  SlickQueue<int, 2> queue;
+  SlickQueue<int> queue(2);
   auto reserved = queue.reserve();
   REQUIRE( reserved == 0 );
   REQUIRE( queue.reserve() == 1);
@@ -19,7 +20,7 @@ TEST_CASE( "Reserve - shm") {
 }
 
 TEST_CASE( "Read should fail w/o publish - shm") {
-  SlickQueue<int, 2> queue;
+  SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   auto read = queue.read(read_cursor);
@@ -28,7 +29,7 @@ TEST_CASE( "Read should fail w/o publish - shm") {
 }
 
 TEST_CASE( "Publish and read - shm" ) {
-  SlickQueue<int, 2> queue;
+  SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   *queue[reserved] = 5;
@@ -40,7 +41,7 @@ TEST_CASE( "Publish and read - shm" ) {
 }
 
 TEST_CASE( "Publish and read multiple - shm" ) {
-  SlickQueue<int, 4> queue;
+  SlickQueue<int> queue(4);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   *queue[reserved] = 5;
@@ -72,7 +73,7 @@ TEST_CASE( "Publish and read multiple - shm" ) {
 }
 
 TEST_CASE("SHM test - shm") {
-    SlickQueue<int, 2> queue("test");
+    SlickQueue<int> queue(2, "test");
     uint64_t read_cursor = 0;
     auto reserved = queue.reserve();
     *queue[reserved] = 5;
