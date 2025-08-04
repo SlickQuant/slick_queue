@@ -6,7 +6,7 @@
 using namespace slick;
 
 TEST_CASE("Read empty queue") {
-  SlickQueue<int> queue(2, "sq_test1");
+  SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto read = queue.read(read_cursor);
   REQUIRE(read.first == nullptr);
@@ -21,7 +21,7 @@ TEST_CASE("Read empty queue") {
 //}
 
 TEST_CASE( "Reserve") {
-  SlickQueue<int> queue(2, "sq_test2");
+  SlickQueue<int> queue(2);
   auto reserved = queue.reserve();
   REQUIRE( reserved == 0 );
   REQUIRE( queue.reserve() == 1);
@@ -29,7 +29,7 @@ TEST_CASE( "Reserve") {
 }
 
 TEST_CASE( "Read should fail w/o publish") {
-  SlickQueue<int> queue(2, "sq_test3");
+  SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   auto read = queue.read(read_cursor);
@@ -38,7 +38,7 @@ TEST_CASE( "Read should fail w/o publish") {
 }
 
 TEST_CASE( "Publish and read" ) {
-  SlickQueue<int> queue(2, "sq_test4");
+  SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   *queue[reserved] = 5;
@@ -50,7 +50,7 @@ TEST_CASE( "Publish and read" ) {
 }
 
 TEST_CASE( "Publish and read multiple" ) {
-  SlickQueue<int> queue(4, "sq_test5");
+  SlickQueue<int> queue(4);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   *queue[reserved] = 5;

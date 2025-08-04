@@ -51,6 +51,7 @@ class SlickQueue {
 #else
     int shm_fd_ = -1;
     void* lpvMem_ = nullptr;
+    std::string shm_name_;
 #endif
 
 public:
@@ -103,7 +104,7 @@ public:
             shm_fd_ = -1;
         }
 #endif
-        
+
         if (!use_shm_) {
             delete[] data_;
             data_ = nullptr;
@@ -226,10 +227,6 @@ private:
             own_ = false;
             auto err = GetLastError();
             if (hMapFile_ == NULL) {
-                throw std::runtime_error("Failed to create shm. err=" + std::to_string(err));
-            }
-
-            if (err != ERROR_ALREADY_EXISTS) {
                 own_ = true;
             }
         }
@@ -255,6 +252,7 @@ private:
 #else
     void allocate_shm_data(const char* const shm_name, bool open_only) {
         size_t BF_SZ;
+	shm_name_ = shm_name;
         if (open_only) {
             shm_fd_ = shm_open(shm_name, O_RDWR, 0666);
             if (shm_fd_ == -1) {
