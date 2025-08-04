@@ -9,4 +9,8 @@ set(CMAKE_CXX_STANDARD 17)
 add_library(slick_queue INTERFACE)
 target_include_directories(slick_queue INTERFACE include)
 
+if(UNIX AND NOT APPLE)
+    target_link_libraries(slick_queue INTERFACE rt)
+endif()
+
 add_subdirectory(tests EXCLUDE_FROM_ALL)
