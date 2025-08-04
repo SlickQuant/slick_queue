@@ -264,66 +264,44 @@ private:
 #else
     void allocate_shm_data(const char* const shm_name, bool open_only) {
         size_t BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
-	shm_name_ = shm_name;
-        if (open_only) {
-            shm_fd_ = shm_open(shm_name, O_RDWR, 0666);
-            if (shm_fd_ == -1) {
-                throw std::runtime_error("Failed to open shm. err=" + std::to_string(errno));
-            }
-
-            void* tmp = mmap(nullptr, 64, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
-            if (tmp == MAP_FAILED) {
-                throw std::runtime_error("Failed to map shm header. err=" + std::to_string(errno));
-            }
-            mask_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(tmp) + sizeof(std::atomic_uint_fast64_t)) - 1;
-            size_ = mask_ + 1025;
-            munmap(tmp, 64);
-
-            lpvMem_ = mmap(nullptr, BF_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
-            if (lpvMem_ == MAP_FAILED) {
-                throw std::runtime_error("Failed to map shm. err=" + std::to_string(errno));
-            }
-
-            reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
-            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
-            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
-            own_ = false;
-        } else {
-            shm_fd_ = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, 0666);
-            if (shm_fd_ == -1) {
-                if (errno != EEXIST) {
-                    throw std::runtime_error("Failed to create shm. err=" + std::to_string(errno));
-                }
+        shm_name_ = shm_name;
+        int flags = open_only ? O_RDWR : (O_RDWR | O_CREAT | O_EXCL);
+        shm_fd_ = shm_open(shm_name, flags, 0666);
+        if (shm_fd_ == -1) {
+            if (!open_only && errno == EEXIST) {
+                // Try opening existing
                 shm_fd_ = shm_open(shm_name, O_RDWR, 0666);
                 if (shm_fd_ == -1) {
                     throw std::runtime_error("Failed to open existing shm. err=" + std::to_string(errno));
                 }
                 own_ = false;
             } else {
-                own_ = true;
+                throw std::runtime_error("Failed to open/create shm. err=" + std::to_string(errno));
             }
+        } else {
+            own_ = !open_only;
+        }
 
-            if (own_) {
-                if (ftruncate(shm_fd_, BF_SZ) == -1) {
-                    throw std::runtime_error("Failed to size shm. err=" + std::to_string(errno));
-                }
+        if (own_) {
+            if (ftruncate(shm_fd_, BF_SZ) == -1) {
+                throw std::runtime_error("Failed to size shm. err=" + std::to_string(errno));
             }
+        }
 
-            lpvMem_ = mmap(nullptr, BF_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
-            if (lpvMem_ == MAP_FAILED) {
-                throw std::runtime_error("Failed to map shm. err=" + std::to_string(errno));
-            }
+        lpvMem_ = mmap(nullptr, BF_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
+        if (lpvMem_ == MAP_FAILED) {
+            throw std::runtime_error("Failed to map shm. err=" + std::to_string(errno));
+        }
 
-            if (own_) {
-                reserved_ = new (lpvMem_) std::atomic_uint_fast64_t{ 0 };
-                *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
-                control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
-                data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
-            } else {
-                reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
-                control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
-                data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
-            }
+        if (own_) {
+            reserved_ = new (lpvMem_) std::atomic_uint_fast64_t{ 0 };
+            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
+            control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
+            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
+        } else {
+            reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
+            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
+            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
         }
     }
 #endif
