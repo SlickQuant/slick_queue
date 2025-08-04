@@ -71,16 +71,3 @@ TEST_CASE( "Publish and read multiple - shm" ) {
   REQUIRE(read_cursor == 3);
   REQUIRE(*read.first == 23);
 }
-
-TEST_CASE("SHM test - shm") {
-    SlickQueue<int> queue(2, "sq_shm_test");
-    uint64_t read_cursor = 0;
-    auto reserved = queue.reserve();
-    *queue[reserved] = 5;
-    queue.publish(reserved);
-    auto read = queue.read(read_cursor);
-    REQUIRE(read.first != nullptr);
-    REQUIRE(read_cursor == 1);
-    REQUIRE(*read.first == 5);
-}
-

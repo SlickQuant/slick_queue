@@ -13,4 +13,9 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(slick_queue INTERFACE rt)
 endif()
 
-add_subdirectory(tests EXCLUDE_FROM_ALL)
+if (WIN32)
+    add_subdirectory(tests)
+else()
+    add_subdirectory(tests EXCLUDE_FROM_ALL)
+endif()
+

@@ -194,10 +194,14 @@ private:
 
 #if defined(_MSC_VER)
     void allocate_shm_data(const char* const shm_name, bool open_only) {
-        SIZE_T BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+        DWORD BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
         hMapFile_ = NULL;
         if (open_only) {
+#ifndef UNICODE
+            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCSTR)shm_name);
+#else
             hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCWSTR)shm_name);
+#endif
             own_ = false;
             auto err = GetLastError();
             if (hMapFile_ == NULL) {
@@ -220,8 +224,12 @@ private:
                 NULL,                               // default security
                 PAGE_READWRITE,                     // read/write access
                 0,                                  // maximum object size (high-order DWORD)
-                BF_SZ,                              // maximum object size (low-order DWORD)
+                BF_SZ,                       // maximum object size (low-order DWORD)
+#ifndef UNICODE
+                (LPCSTR)shm_name                    // name of mapping object
+#else           
                 (LPCWSTR)shm_name                   // name of mapping object
+#endif
             );
 
             own_ = false;
