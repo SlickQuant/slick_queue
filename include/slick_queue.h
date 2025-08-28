@@ -38,6 +38,7 @@ class SlickQueue {
     };
 
     uint32_t size_;
+    uint32_t buffered_size_;
     uint32_t mask_;
     T* data_ = nullptr;
     slot* control_ = nullptr;
@@ -56,10 +57,11 @@ class SlickQueue {
 
 public:
     SlickQueue(uint32_t size, const char* const shm_name = nullptr)
-        : size_(size + 1024)    // add some buffer at the end
+        : size_(size)
+        , buffered_size_(size + 1024)   // add some buffer at the end
         , mask_(size - 1)
-        , data_(shm_name ? nullptr : new T[size_])   
-        , control_(shm_name ? nullptr : new slot[size_])
+        , data_(shm_name ? nullptr : new T[buffered_size_])   
+        , control_(shm_name ? nullptr : new slot[buffered_size_])
         , reserved_(shm_name ? nullptr : &reserved_local_)
         , own_(shm_name == nullptr)
         , use_shm_(shm_name != nullptr)
@@ -95,7 +97,7 @@ public:
         }
 #else
         if (lpvMem_) {
-            auto BF_SZ = static_cast<size_t>(64 + sizeof(slot) * size_ + sizeof(T) * size_);
+            auto BF_SZ = static_cast<size_t>(64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_);
             munmap(lpvMem_, BF_SZ);
             lpvMem_ = nullptr;
         }
@@ -119,6 +121,7 @@ public:
 
     bool own_buffer() const noexcept { return own_; }
     bool use_shm() const noexcept { return use_shm_; }
+    constexpr uint32_t size() const noexcept { return mask_ + 1; }
 
     uint64_t initial_reading_index() const noexcept {
         return reserved_->load(std::memory_order_relaxed);
@@ -194,7 +197,7 @@ private:
 
 #if defined(_MSC_VER)
     void allocate_shm_data(const char* const shm_name, bool open_only) {
-        DWORD BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+        DWORD BF_SZ = 64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_;
         hMapFile_ = NULL;
         if (open_only) {
 #ifndef UNICODE
@@ -213,8 +216,9 @@ private:
                 auto err = GetLastError();
                 throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
             }
-            mask_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) - 1;
-            size_ = mask_ + 1025;
+            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t));
+            mask_ = size_ - 1;
+            buffered_size_ = size_ + 1024;
             UnmapViewOfFile(lpvMem_);
             lpvMem_ = nullptr;
         }
@@ -252,18 +256,18 @@ private:
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic_uint_fast64_t{ 0 };
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
-            control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
-            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
+            control_ = new ((uint8_t*)lpvMem_ + 64) slot[buffered_size_];
+            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * buffered_size_) T[buffered_size_];
         }
         else {
             reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
             control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
-            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
+            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * buffered_size_);
         }
     }
 #else
     void allocate_shm_data(const char* const shm_name, bool open_only) {
-        size_t BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+        size_t BF_SZ = 64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_;
         shm_name_ = shm_name;
         int flags = open_only ? O_RDWR : (O_RDWR | O_CREAT | O_EXCL);
         shm_fd_ = shm_open(shm_name, flags, 0666);
@@ -296,12 +300,12 @@ private:
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic_uint_fast64_t{ 0 };
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
-            control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
-            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
+            control_ = new ((uint8_t*)lpvMem_ + 64) slot[buffered_size_];
+            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * buffered_size_) T[buffered_size_];
         } else {
             reserved_ = reinterpret_cast<std::atomic_uint_fast64_t*>(lpvMem_);
             control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
-            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
+            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * buffered_size_);
         }
     }
 #endif
