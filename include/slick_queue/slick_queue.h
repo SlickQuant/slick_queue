@@ -33,7 +33,7 @@ namespace slick {
 template<typename T>
 class SlickQueue {
     struct slot {
-        std::atomic_uint_fast64_t data_index{ 0 };
+        std::atomic_uint_fast64_t data_index{ std::numeric_limits<uint64_t>::max() };
         uint32_t size = 1;
     };
 
@@ -71,10 +71,10 @@ public:
             allocate_shm_data(shm_name, false);
         }
 
-        if (own_) {
-            // invalidate first slot
-            control_[0].data_index.store(-1, std::memory_order_relaxed);
-        }
+        // if (own_) {
+        //     // invalidate first slot
+        //     control_[0].data_index.store(-1, std::memory_order_relaxed);
+        // }
     }
 
     SlickQueue(const char* const shm_name)
@@ -148,12 +148,12 @@ public:
     std::pair<T*, uint32_t> read(uint64_t& read_index) noexcept {
         auto& slot = control_[read_index & mask_];
         auto index = slot.data_index.load(std::memory_order_relaxed);
-        if (reserved_->load(std::memory_order_relaxed) < index) {
+        if (index != std::numeric_limits<uint64_t>::max() && reserved_->load(std::memory_order_relaxed) < index) {
             // queue has been reset
             read_index = 0;
         }
 
-        if (index == -1 || index < read_index) {
+        if (index == std::numeric_limits<uint64_t>::max() || index < read_index) {
             // data not ready yet
             return std::make_pair(nullptr, 0);
         }
@@ -188,8 +188,12 @@ public:
     }
 
     void reset() noexcept {
-        // invalidate first slot
-        control_[0].data_index.store(-1, std::memory_order_release);
+        if (use_shm_) {
+            control_ = new ((uint8_t*)lpvMem_ + 64) slot[buffered_size_];
+        } else {
+            delete [] control_;
+            control_ = new slot[buffered_size_];
+        }
         reserved_->store(0, std::memory_order_release);
     }
 
@@ -199,11 +203,20 @@ private:
     void allocate_shm_data(const char* const shm_name, bool open_only) {
         DWORD BF_SZ = 64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_;
         hMapFile_ = NULL;
+
+#ifndef UNICODE
+        std::string shmName = shm_name;
+#else
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, shm_name, strlen(shm_name), NULL, 0);
+        std::wstring shmName(size_needed, 0);
+        MultiByteToWideChar(CP_UTF8, 0, shm_name, strlen(shm_name), &shmName[0], size_needed);
+#endif
+
         if (open_only) {
 #ifndef UNICODE
-            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCSTR)shm_name);
+            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCSTR)shmName.c_str());
 #else
-            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCWSTR)shm_name);
+            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCWSTR)shmName.c_str());
 #endif
             own_ = false;
             auto err = GetLastError();
@@ -219,8 +232,6 @@ private:
             size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t));
             mask_ = size_ - 1;
             buffered_size_ = size_ + 1024;
-            UnmapViewOfFile(lpvMem_);
-            lpvMem_ = nullptr;
         }
         else {
             hMapFile_ = CreateFileMapping(
@@ -228,29 +239,29 @@ private:
                 NULL,                               // default security
                 PAGE_READWRITE,                     // read/write access
                 0,                                  // maximum object size (high-order DWORD)
-                BF_SZ,                       // maximum object size (low-order DWORD)
+                BF_SZ,                              // maximum object size (low-order DWORD)
 #ifndef UNICODE
-                (LPCSTR)shm_name                    // name of mapping object
+                (LPCSTR)shmName.c_str()             // name of mapping object
 #else           
-                (LPCWSTR)shm_name                   // name of mapping object
+                (LPCWSTR)shmName.c_str()            // name of mapping object
 #endif
             );
 
             own_ = false;
             auto err = GetLastError();
             if (hMapFile_ == NULL) {
-		throw std::runtime_error("Failed to create shm. err=" + std::to_string(err));
+		        throw std::runtime_error("Failed to create shm. err=" + std::to_string(err));
             }
 
             if (err != ERROR_ALREADY_EXISTS) {
                 own_ = true;
             }
-        }
 
-        lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
-        if (!lpvMem_) {
-            auto err = GetLastError();
-            throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
+            lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
+            if (!lpvMem_) {
+                auto err = GetLastError();
+                throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
+            }
         }
 
         if (own_) {
