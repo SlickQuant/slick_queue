@@ -20,6 +20,8 @@
 #if defined(_MSC_VER)
 #ifndef NOMINMAX
 #define NOMINMAX
+#undef min
+#undef max
 #endif
 #include <windows.h>
 #include <tchar.h>
