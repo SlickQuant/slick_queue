@@ -1,6 +1,6 @@
 #define CATCH_CONFIG_NO_POSIX_SIGNALS
 #include "catch.hh"
-#include "../include/slick_queue.h"
+#include <slick_queue/slick_queue.h>
 
 using namespace slick;
 

@@ -18,6 +18,7 @@
 #include <cassert>
 
 #if defined(_MSC_VER)
+#define NOMINMAX
 #include <windows.h>
 #include <tchar.h>
 #else
