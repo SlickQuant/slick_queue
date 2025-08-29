@@ -206,7 +206,7 @@ private:
 
 #if defined(_MSC_VER)
     void allocate_shm_data(const char* const shm_name, bool open_only) {
-        DWORD BF_SZ = 64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_;
+        DWORD BF_SZ;
         hMapFile_ = NULL;
 
 #ifndef UNICODE
@@ -229,19 +229,28 @@ private:
                 throw std::runtime_error("Failed to open shm. err=" + std::to_string(err));
             }
 
-            lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
-            if (!lpvMem_) {
+            auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, 64);
+            if (!lpvMem) {
                 auto err = GetLastError();
                 throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
             }
-            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t));
+            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic_uint_fast64_t));
             mask_ = size_ - 1;
             buffered_size_ = size_ + 1024;
+            BF_SZ = 64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_;
+            UnmapViewOfFile(lpvMem);
         }
         else {
+            BF_SZ = 64 + sizeof(slot) * buffered_size_ + sizeof(T) * buffered_size_;
+
+            SECURITY_ATTRIBUTES sa;
+            sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+            sa.lpSecurityDescriptor = NULL;
+            sa.bInheritHandle = FALSE;
+
             hMapFile_ = CreateFileMapping(
                 INVALID_HANDLE_VALUE,               // use paging file
-                NULL,                               // default security
+                &sa,                                // default security
                 PAGE_READWRITE,                     // read/write access
                 0,                                  // maximum object size (high-order DWORD)
                 BF_SZ,                              // maximum object size (low-order DWORD)
@@ -261,17 +270,17 @@ private:
             if (err != ERROR_ALREADY_EXISTS) {
                 own_ = true;
             }
+        }
 
-            lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
-            if (!lpvMem_) {
-                auto err = GetLastError();
-                throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
-            }
+        lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
+        if (!lpvMem_) {
+            auto err = GetLastError();
+            throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
         }
 
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic_uint_fast64_t{ 0 };
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = mask_ + 1;
+            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic_uint_fast64_t)) = size_;
             control_ = new ((uint8_t*)lpvMem_ + 64) slot[buffered_size_];
             data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * buffered_size_) T[buffered_size_];
         }
