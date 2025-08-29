@@ -227,7 +227,7 @@ private:
                 throw std::runtime_error("Failed to open shm. err=" + std::to_string(err));
             }
 
-            lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, 64);
+            lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
             if (!lpvMem_) {
                 auto err = GetLastError();
                 throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
