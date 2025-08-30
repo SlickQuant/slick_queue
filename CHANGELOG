@@ -1,0 +1,3 @@
+# v1.0.0.1 - 2025-08-30
+- Add comprehensive documentation to SlickQueue class
+- Minor fix: corrected size() method to return size_ instead of mask_ + 1 for accuracy
