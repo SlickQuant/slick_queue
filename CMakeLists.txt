@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-set(BUILD_VERSION 1.0.0.1)
+set(BUILD_VERSION 1.0.0.2)
 
 project(slick_queue
         VERSION ${BUILD_VERSION}
@@ -36,19 +36,19 @@ if(BUILD_SLICK_QUEUE_TESTS)
 endif()
 
 # Installation rules
-install(DIRECTORY include/ DESTINATION slick_queue/include)
+install(DIRECTORY include/ DESTINATION include)
 
 message(STATUS "Build version: ${BUILD_VERSION}")
 
 # Automatically run install after build in Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_custom_target(auto_install ALL
+    add_custom_target(dist_slick_queue ALL
         COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${CMAKE_BINARY_DIR}/dist
-        COMMENT "Auto-installing after release build"
+        COMMENT "Create distribution after release build"
         VERBATIM
     )
 
-    add_custom_target(package ALL
+    add_custom_target(package_slick_queue ALL
         COMMAND ${CMAKE_COMMAND} -E tar "cfv" "${CMAKE_BINARY_DIR}/dist/slick_queue_${BUILD_VERSION}.zip" --format=zip "${CMAKE_CURRENT_SOURCE_DIR}/include"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "Creating zip archive"
