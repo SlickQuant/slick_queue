@@ -48,10 +48,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         VERBATIM
     )
 
-    add_custom_target(package_slick_queue ALL
-        COMMAND ${CMAKE_COMMAND} -E tar "cfv" "${CMAKE_BINARY_DIR}/dist/slick_queue_${BUILD_VERSION}.zip" --format=zip "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        COMMENT "Creating zip archive"
-    )
+    if (PROJECT_IS_TOP_LEVEL)
+        add_custom_target(package_slick_queue ALL
+            COMMAND ${CMAKE_COMMAND} -E tar "cfv" "${CMAKE_BINARY_DIR}/dist/slick_queue_${BUILD_VERSION}.zip" --format=zip "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            COMMENT "Creating zip archive"
+        )
+        add_dependencies(package_slick_queue dist_slick_queue)
+    endif()
 endif()
 
