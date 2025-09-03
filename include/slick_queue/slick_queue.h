@@ -280,7 +280,7 @@ private:
 #ifndef UNICODE
         std::string shmName = shm_name;
 #else
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, shm_name, strlen(shm_name), NULL, 0);
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, shm_name, static_cast<int>(strlen(shm_name)), NULL, 0);
         std::wstring shmName(size_needed, 0);
         MultiByteToWideChar(CP_UTF8, 0, shm_name, strlen(shm_name), &shmName[0], size_needed);
 #endif
