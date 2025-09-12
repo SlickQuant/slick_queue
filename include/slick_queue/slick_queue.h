@@ -1,11 +1,11 @@
 /********************************************************************************
- * Copyright (c) 2020-2025 SlickTech
+ * Copyright (c) 2020-2025 SlickQuant
  * All rights reserved
  *
  * This file is part of the SlickQueue. Redistribution and use in source and
  * binary forms, with or without modification, are permitted exclusively under
  * the terms of the MIT license which is available at
- * https://github.com/SlickTech/slick_queue/blob/main/LICENSE
+ * https://github.com/SlickQuant/slick_queue/blob/main/LICENSE
  *
  ********************************************************************************/
 
