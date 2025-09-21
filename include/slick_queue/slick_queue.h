@@ -20,9 +20,10 @@
 #if defined(_MSC_VER)
 #ifndef NOMINMAX
 #define NOMINMAX
-#undef min
-#undef max
+#undef min  // to avoid conflicts with std::min
+#undef max  // to avoid conflicts with std::max
 #endif
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tchar.h>
 #else
