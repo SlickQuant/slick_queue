@@ -1,3 +1,6 @@
+# v1.0.1.2 - 2025-09-23
+- Fixed dist_slick_queue might cause third-party dependency installation error in release build
+
 # v1.0.1.1 - 2025-09-20
 - Add WIN32_LEAN_AND_MEAN
 
