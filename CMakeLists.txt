@@ -38,7 +38,7 @@ endif()
 # Installation rules
 install(DIRECTORY include/ DESTINATION include)
 
-message(STATUS "Build version: ${BUILD_VERSION}")
+message(STATUS "slick_queue: ${BUILD_VERSION}")
 
 # Automatically run install after build in Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
