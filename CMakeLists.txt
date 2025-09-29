@@ -13,7 +13,7 @@ add_library(slick_queue INTERFACE)
 target_include_directories(slick_queue INTERFACE include)
 
 if(UNIX AND NOT APPLE)
-    target_link_libraries(slick_queue INTERFACE rt)
+    target_link_libraries(slick_queue INTERFACE rt atomic)
 endif()
 
 if (MSVC)
