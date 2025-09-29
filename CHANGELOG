@@ -1,3 +1,8 @@
+# v1.0.2.0 - 2025-09-29
+- Handles buffer wrap properly
+- Refactor to use reserved_info struct for better buffer management 
+- Add buffer wrap test case
+
 # v1.0.1.2 - 2025-09-23
 - Fixed dist_slick_queue might cause third-party dependency installation error in release build
 

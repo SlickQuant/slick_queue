@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-set(BUILD_VERSION 1.0.1.2)
+set(BUILD_VERSION 1.0.2.0)
 
 project(slick_queue
         VERSION ${BUILD_VERSION}

@@ -12,14 +12,6 @@ TEST_CASE("Read empty queue") {
   REQUIRE(read.first == nullptr);
 }
 
-//TEST_CASE("RESET read cursor") {
-//  SlickQueue<int> queue(2);
-//  uint64_t read_cursor = std::numeric_limits<uint64_t>::max();
-//  auto read = queue.read(read_cursor);
-//  REQUIRE(read.first == nullptr);
-//  REQUIRE(read_cursor == 0);
-//}
-
 TEST_CASE( "Reserve") {
   SlickQueue<int> queue(2);
   auto reserved = queue.reserve();
@@ -79,5 +71,37 @@ TEST_CASE( "Publish and read multiple" ) {
   REQUIRE(read.first != nullptr);
   REQUIRE(read_cursor == 3);
   REQUIRE(*read.first == 23);
+}
+
+TEST_CASE( "buffer wrap" ) {
+  SlickQueue<char> queue(8);
+  uint64_t read_cursor = 0;
+  
+  auto reserved = queue.reserve(3);
+  REQUIRE( reserved == 0 );
+  memcpy(queue[reserved], "123", 3);
+  queue.publish(reserved, 3);
+  auto read = queue.read(read_cursor);
+  REQUIRE( read.first != nullptr );
+  REQUIRE( read_cursor == 3);
+  REQUIRE( strncmp(read.first, "123", 3) == 0);
+
+  reserved = queue.reserve(3);
+  REQUIRE( reserved == 3 );
+  memcpy(queue[reserved], "456", 3);
+  queue.publish(reserved, 3);
+  read = queue.read(read_cursor);
+  REQUIRE( read.first != nullptr );
+  REQUIRE( read_cursor == 6);
+  REQUIRE( strncmp(read.first, "456", 3) == 0);
+
+  reserved = queue.reserve(3);
+  REQUIRE( reserved == 8 );
+  memcpy(queue[reserved], "789", 3);
+  queue.publish(reserved, 3);
+  read = queue.read(read_cursor);
+  REQUIRE( read.first != nullptr );
+  REQUIRE( read_cursor == 11);
+  REQUIRE( strncmp(read.first, "789", 3) == 0);
 }
 
