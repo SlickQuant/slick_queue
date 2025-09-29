@@ -414,7 +414,7 @@ private:
         }
 
         if (own_) {
-            reserved_ = new (lpvMem_) std::atomic<reserved_info>{ 0, 0 };
+            reserved_ = new (lpvMem_) std::atomic<reserved_info>();
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = mask_ + 1;
             control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
             data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
