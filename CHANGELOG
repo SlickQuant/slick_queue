@@ -1,6 +1,11 @@
+# v1.0.2.1 - 2025-10-01
+- Fixed buffer wrap read logic to properly retry from wrapped position
+- Improved reader behavior when encountering wrap jump markers
+- Changed to C++20
+
 # v1.0.2.0 - 2025-09-29
 - Handles buffer wrap properly
-- Refactor to use reserved_info struct for better buffer management 
+- Refactor to use reserved_info struct for better buffer management
 - Add buffer wrap test case
 
 # v1.0.1.2 - 2025-09-23

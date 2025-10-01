@@ -58,7 +58,6 @@ class SlickQueue {
 
     uint32_t size_;
     uint32_t mask_;
-    uint32_t last_data_size_;
     T* data_ = nullptr;
     slot* control_ = nullptr;
     std::atomic<reserved_info>* reserved_ = nullptr;
@@ -179,12 +178,16 @@ public:
      * @param n Number of slots to reserve, default is 1
      * @return The starting index of the reserved space
      */
-    uint64_t reserve(uint32_t n = 1) noexcept {
+    uint64_t reserve(uint32_t n = 1) {
+        if (n > size_) [[unlikely]] {
+            throw std::runtime_error(std::format("required size {} > queue size {}", n, size_));
+        }
         auto reserved = reserved_->load(std::memory_order_relaxed);
         reserved_info next;
         uint64_t index;
         bool buffer_wrapped = false;
         do {
+            buffer_wrapped = false;
             next = reserved;
             index = reserved.index_;
             auto idx = index & mask_;
@@ -201,7 +204,8 @@ public:
             }
         } while(!reserved_->compare_exchange_weak(reserved, next, std::memory_order_release, std::memory_order_relaxed));
         if (buffer_wrapped) {
-            // 
+            // queue wrapped, set current slock.data_index to the reserved index to let the reader
+            // know the next available data is in different slot.
             auto& slot = control_[reserved.index_ & mask_];
             slot.size = n;
             slot.data_index.store(index, std::memory_order_release);
@@ -235,7 +239,6 @@ public:
     void publish(uint64_t index, uint32_t n = 1) noexcept {
         auto& slot = control_[index & mask_];
         slot.size = n;
-        last_data_size_ = n;
         slot.data_index.store(index, std::memory_order_release);
     }
 
@@ -245,25 +248,32 @@ public:
      * @return Pair of pointer to the data and the size of the data, or nullptr and 0 if no data is available
      */
     std::pair<T*, uint32_t> read(uint64_t& read_index) noexcept {
-        auto idx = read_index & mask_;
-        auto& slot = control_[idx];
-        auto index = slot.data_index.load(std::memory_order_relaxed);
-        if (index != std::numeric_limits<uint64_t>::max() && reserved_->load(std::memory_order_relaxed).index_ < index) {
-            // queue has been reset
-            read_index = 0;
-        }
-
-        if (index == std::numeric_limits<uint64_t>::max() || index < read_index) {
-            // data not ready yet
-            return std::make_pair(nullptr, 0);
-        }
-        else if (index > read_index && ((index & mask_) != idx)) {
-            read_index = index;
+        uint64_t index;
+        slot* current_slot;
+        while (true) {
+            auto idx = read_index & mask_;
+            current_slot = &control_[idx];
+            index = current_slot->data_index.load(std::memory_order_acquire);
+            if (index != std::numeric_limits<uint64_t>::max() && reserved_->load(std::memory_order_relaxed).index_ < index) [[unlikely]] {
+                // queue has been reset
+                read_index = 0;
+            }
+    
+            if (index == std::numeric_limits<uint64_t>::max() || index < read_index) {
+                // data not ready yet
+                return std::make_pair(nullptr, 0);
+            }
+            else if (index > read_index && ((index & mask_) != idx)) {
+                // queue wrapped, skip the unused slots
+                read_index = index;
+                continue;
+            }
+            break;
         }
 
         auto& data = data_[read_index & mask_];
-        read_index = index + slot.size;
-        return std::make_pair(&data, slot.size);
+        read_index = index + current_slot->size;
+        return std::make_pair(&data, current_slot->size);
     }
 
     /**

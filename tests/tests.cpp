@@ -98,6 +98,13 @@ TEST_CASE( "buffer wrap" ) {
   reserved = queue.reserve(3);
   REQUIRE( reserved == 8 );
   memcpy(queue[reserved], "789", 3);
+
+  // read before publish, the read_cursor should changed to new location
+  read = queue.read(read_cursor);
+  REQUIRE( read_cursor == 8 );
+  REQUIRE( read.first == nullptr );
+  REQUIRE( read.second == 0 );
+
   queue.publish(reserved, 3);
   read = queue.read(read_cursor);
   REQUIRE( read.first != nullptr );
