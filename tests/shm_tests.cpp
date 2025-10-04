@@ -1,6 +1,7 @@
 #define CATCH_CONFIG_NO_POSIX_SIGNALS
 #include "catch.hh"
 #include <slick_queue/slick_queue.h>
+#include <thread>
 
 using namespace slick;
 
@@ -106,4 +107,46 @@ TEST_CASE( "Server Client - shm" ) {
   REQUIRE(read.first != nullptr);
   REQUIRE(read_cursor == 3);
   REQUIRE(*read.first == 23);
+}
+
+TEST_CASE( "Atomic cursor - shared memory work-stealing" ) {
+  SlickQueue<int> server(1024, "sq_atomic_cursor_shm");
+  SlickQueue<int> client1("sq_atomic_cursor_shm");
+  SlickQueue<int> client2("sq_atomic_cursor_shm");
+
+  std::atomic<uint64_t> shared_cursor{0};
+  std::atomic<int> total_consumed{0};
+
+  // Server: publish 100 items
+  std::thread producer([&]() {
+    for (int i = 0; i < 100; ++i) {
+      auto slot = server.reserve();
+      *server[slot] = i;
+      server.publish(slot);
+    }
+  });
+
+  // Multiple clients sharing atomic cursor via shared memory
+  auto consumer = [&](SlickQueue<int>& client) {
+    int local_count = 0;
+    while (total_consumed.load() < 100) {
+      auto result = client.read(shared_cursor);
+      if (result.first != nullptr) {
+        local_count++;
+        total_consumed.fetch_add(1);
+      }
+    }
+    return local_count;
+  };
+
+  std::thread c1([&]() { consumer(client1); });
+  std::thread c2([&]() { consumer(client2); });
+
+  producer.join();
+  c1.join();
+  c2.join();
+
+  // Verify all 100 items were consumed exactly once
+  REQUIRE(total_consumed.load() == 100);
+  REQUIRE(shared_cursor.load() == 100);
 }

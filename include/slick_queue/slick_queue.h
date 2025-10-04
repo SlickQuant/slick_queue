@@ -277,6 +277,47 @@ public:
     }
 
     /**
+     * @brief Read data from the queue using a shared atomic cursor
+     * @param read_index Reference to the atomic reading index, will be atomically updated after reading
+     * @return Pair of pointer to the data and the size of the data, or nullptr and 0 if no data is available
+     *
+     * This overload allows multiple consumers to share a single atomic cursor for load-balancing/work-stealing patterns.
+     * Each consumer atomically claims the next item to process.
+     */
+    std::pair<T*, uint32_t> read(std::atomic<uint64_t>& read_index) noexcept {
+        while (true) {
+            uint64_t current_index = read_index.load(std::memory_order_acquire);
+            auto idx = current_index & mask_;
+            slot* current_slot = &control_[idx];
+            uint64_t index = current_slot->data_index.load(std::memory_order_acquire);
+
+            if (index != std::numeric_limits<uint64_t>::max() && reserved_->load(std::memory_order_relaxed).index_ < index) [[unlikely]] {
+                // queue has been reset
+                read_index.store(0, std::memory_order_release);
+                continue;
+            }
+
+            if (index == std::numeric_limits<uint64_t>::max() || index < current_index) {
+                // data not ready yet
+                return std::make_pair(nullptr, 0);
+            }
+            else if (index > current_index && ((index & mask_) != idx)) {
+                // queue wrapped, skip the unused slots
+                read_index.compare_exchange_weak(current_index, index, std::memory_order_release, std::memory_order_relaxed);
+                continue;
+            }
+
+            // Try to atomically claim this item
+            uint64_t next_index = index + current_slot->size;
+            if (read_index.compare_exchange_weak(current_index, next_index, std::memory_order_release, std::memory_order_relaxed)) {
+                // Successfully claimed the item
+                return std::make_pair(&data_[current_index & mask_], current_slot->size);
+            }
+            // CAS failed, another consumer claimed it, retry
+        }
+    }
+
+    /**
     * @brief Read the last published data in the queue
     * @return Pointer to the last published data, or nullptr if no data is available
     */

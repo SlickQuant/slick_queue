@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-set(BUILD_VERSION 1.0.2.2)
+set(BUILD_VERSION 1.1.0.0)
 
 project(slick_queue
         VERSION ${BUILD_VERSION}
@@ -48,6 +48,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         VERBATIM
     )
 
+    if (MSVC)
+        set_target_properties(dist_slick_queue PROPERTIES
+            VS_GLOBAL_IntDir "$(Platform)\\$(Configuration)\\dist_slick_queue\\"
+        )
+    endif()
+
     if (PROJECT_IS_TOP_LEVEL)
         add_custom_target(package_slick_queue ALL
             COMMAND ${CMAKE_COMMAND} -E tar "cfv" "${CMAKE_BINARY_DIR}/dist/slick_queue_${BUILD_VERSION}.zip" --format=zip "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -55,6 +61,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
             COMMENT "Creating zip archive"
         )
         add_dependencies(package_slick_queue dist_slick_queue)
+
+        if (MSVC)
+            set_target_properties(package_slick_queue PROPERTIES
+                VS_GLOBAL_IntDir "$(Platform)\\$(Configuration)\\package_slick_queue\\"
+            )
+        endif()
     endif()
 endif()
 

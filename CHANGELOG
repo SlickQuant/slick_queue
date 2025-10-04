@@ -1,9 +1,13 @@
-# v1.0.2.2 - 2025-10-04
+# v1.1.0.0 - 2025-10-04
 - Fixed size calculation in shared memory mapping to use reserved_info struct
 - Added server-client shared memory test case
 - Added GitHub CI workflow for automated testing across Ubuntu, Windows, and macOS
 - Added CI status badge to README
 - Added CTest integration for automated test discovery
+- Added read() overload with atomic cursor for work-stealing/load-balancing patterns
+- Added work-stealing test cases for both in-process and shared memory modes
+- Enhanced README with work-stealing example and updated API documentation
+- Fixed MSBuild MSB8028 warnings for custom targets
 
 # v1.0.2.1 - 2025-10-01
 - Fixed buffer wrap read logic to properly retry from wrapped position

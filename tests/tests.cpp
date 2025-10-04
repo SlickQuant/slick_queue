@@ -2,6 +2,7 @@
 #define CATCH_CONFIG_NO_POSIX_SIGNALS
 #include "catch.hh"
 #include <slick_queue/slick_queue.h>
+#include <thread>
 
 using namespace slick;
 
@@ -110,5 +111,46 @@ TEST_CASE( "buffer wrap" ) {
   REQUIRE( read.first != nullptr );
   REQUIRE( read_cursor == 11);
   REQUIRE( strncmp(read.first, "789", 3) == 0);
+}
+
+TEST_CASE( "Atomic cursor - multiple consumers work-stealing" ) {
+  SlickQueue<int> queue(1024);
+  std::atomic<uint64_t> shared_cursor{0};
+  std::atomic<int> total_consumed{0};
+
+  // Producer: publish 200 items
+  std::thread producer([&]() {
+    for (int i = 0; i < 200; ++i) {
+      auto slot = queue.reserve();
+      *queue[slot] = i;
+      queue.publish(slot);
+    }
+  });
+
+  // Multiple consumers sharing atomic cursor
+  auto consumer = [&]() {
+    int local_count = 0;
+    while (total_consumed.load() < 200) {
+      auto result = queue.read(shared_cursor);
+      if (result.first != nullptr) {
+        local_count++;
+        total_consumed.fetch_add(1);
+      }
+    }
+    return local_count;
+  };
+
+  std::thread c1(consumer);
+  std::thread c2(consumer);
+  std::thread c3(consumer);
+
+  producer.join();
+  c1.join();
+  c2.join();
+  c3.join();
+
+  // Verify all 200 items were consumed exactly once
+  REQUIRE(total_consumed.load() == 200);
+  REQUIRE(shared_cursor.load() == 200);
 }
 
