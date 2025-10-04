@@ -3,6 +3,7 @@
 - Added server-client shared memory test case
 - Added GitHub CI workflow for automated testing across Ubuntu, Windows, and macOS
 - Added CI status badge to README
+- Added CTest integration for automated test discovery
 
 # v1.0.2.1 - 2025-10-01
 - Fixed buffer wrap read logic to properly retry from wrapped position
