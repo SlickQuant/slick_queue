@@ -1,5 +1,7 @@
 # SlickQueue
 
+[![CI](https://github.com/SlickQuant/slick_queue/actions/workflows/ci.yml/badge.svg)](https://github.com/SlickQuant/slick_queue/actions/workflows/ci.yml)
+
 SlickQueue is a header-only C++ library that provides a lock-free,
 multi-producer multi-consumer (MPMC) queue built on a ring buffer. It is
 designed for high throughput concurrent messaging and can optionally operate
