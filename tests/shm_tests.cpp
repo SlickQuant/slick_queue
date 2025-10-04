@@ -71,3 +71,39 @@ TEST_CASE( "Publish and read multiple - shm" ) {
   REQUIRE(read_cursor == 3);
   REQUIRE(*read.first == 23);
 }
+
+TEST_CASE( "Server Client - shm" ) {
+  SlickQueue<int> server(4, "sq_server_cleint");
+  SlickQueue<int> client("sq_server_cleint");
+  REQUIRE(client.size() == 4);
+
+  auto reserved = server.reserve();
+  *server[reserved] = 5;
+  server.publish(reserved);
+  auto reserved1 = server.reserve();
+  *server[reserved1] = 12;
+  auto reserved2 = server.reserve();
+  *server[reserved2] = 23;
+  server.publish(reserved2);
+  
+  uint64_t read_cursor = 0;
+  auto read = client.read(read_cursor);
+  REQUIRE( read.first != nullptr );
+  REQUIRE( read_cursor == 1);
+  REQUIRE( *read.first == 5);
+
+  read = client.read(read_cursor);
+  REQUIRE( read.first == nullptr );
+  REQUIRE( read_cursor == 1);
+
+  server.publish(reserved1);
+  read = client.read(read_cursor);
+  REQUIRE(read.first != nullptr);
+  REQUIRE(read_cursor == 2);
+  REQUIRE(*read.first == 12);
+
+  read = client.read(read_cursor);
+  REQUIRE(read.first != nullptr);
+  REQUIRE(read_cursor == 3);
+  REQUIRE(*read.first == 23);
+}

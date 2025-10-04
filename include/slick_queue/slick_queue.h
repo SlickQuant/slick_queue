@@ -336,7 +336,7 @@ private:
                 auto err = GetLastError();
                 throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
             }
-            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic_uint_fast64_t));
+            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
             mask_ = size_ - 1;
             BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
             UnmapViewOfFile(lpvMem);

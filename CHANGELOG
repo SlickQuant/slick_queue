@@ -1,3 +1,7 @@
+# v1.0.2.2 - 2025-10-04
+- Fixed size calculation in shared memory mapping to use reserved_info struct
+- Added server-client shared memory test case
+
 # v1.0.2.1 - 2025-10-01
 - Fixed buffer wrap read logic to properly retry from wrapped position
 - Improved reader behavior when encountering wrap jump markers
