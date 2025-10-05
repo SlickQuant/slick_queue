@@ -180,7 +180,7 @@ public:
      */
     uint64_t reserve(uint32_t n = 1) {
         if (n > size_) [[unlikely]] {
-            throw std::runtime_error(std::format("required size {} > queue size {}", n, size_));
+            throw std::runtime_error("required size " + std::to_string(n) + " > queue size " + std::to_string(size_));
         }
         auto reserved = reserved_->load(std::memory_order_relaxed);
         reserved_info next;
