@@ -1,48 +1,47 @@
-#define CATCH_CONFIG_MAIN  // This tells Catch to provide a main() - only do this in one cpp file
-#define CATCH_CONFIG_NO_POSIX_SIGNALS
-#include "catch.hh"
-#include <slick_queue/slick_queue.h>
+#include <gtest/gtest.h>
+#include <slick/slick_queue.h>
 #include <thread>
+#include <cstring>
 
 using namespace slick;
 
-TEST_CASE("Read empty queue") {
+TEST(SlickQueueTests, ReadEmptyQueue) {
   SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto read = queue.read(read_cursor);
-  REQUIRE(read.first == nullptr);
+  EXPECT_EQ(read.first, nullptr);
 }
 
-TEST_CASE( "Reserve") {
+TEST(SlickQueueTests, Reserve) {
   SlickQueue<int> queue(2);
   auto reserved = queue.reserve();
-  REQUIRE( reserved == 0 );
-  REQUIRE( queue.reserve() == 1);
-  REQUIRE( queue.reserve() == 2);
+  EXPECT_EQ(reserved, 0);
+  EXPECT_EQ(queue.reserve(), 1);
+  EXPECT_EQ(queue.reserve(), 2);
 }
 
-TEST_CASE( "Read should fail w/o publish") {
+TEST(SlickQueueTests, ReadShouldFailWithoutPublish) {
   SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first == nullptr );
-  REQUIRE( read_cursor == 0);
+  EXPECT_EQ(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 0);
 }
 
-TEST_CASE( "Publish and read" ) {
+TEST(SlickQueueTests, PublishAndRead) {
   SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   *queue[reserved] = 5;
   queue.publish(reserved);
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 1);
-  REQUIRE( *read.first == 5);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
+  EXPECT_EQ(*read.first, 5);
 }
 
-TEST_CASE( "Publish and read multiple" ) {
+TEST(SlickQueueTests, PublishAndReadMultiple) {
   SlickQueue<int> queue(4);
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
@@ -54,66 +53,66 @@ TEST_CASE( "Publish and read multiple" ) {
   *queue[reserved2] = 23;
   queue.publish(reserved2);
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 1);
-  REQUIRE( *read.first == 5);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
+  EXPECT_EQ(*read.first, 5);
 
   read = queue.read(read_cursor);
-  REQUIRE( read.first == nullptr );
-  REQUIRE( read_cursor == 1);
+  EXPECT_EQ(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
 
   queue.publish(reserved1);
   read = queue.read(read_cursor);
-  REQUIRE(read.first != nullptr);
-  REQUIRE(read_cursor == 2);
-  REQUIRE(*read.first == 12);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 2);
+  EXPECT_EQ(*read.first, 12);
 
   read = queue.read(read_cursor);
-  REQUIRE(read.first != nullptr);
-  REQUIRE(read_cursor == 3);
-  REQUIRE(*read.first == 23);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 3);
+  EXPECT_EQ(*read.first, 23);
 }
 
-TEST_CASE( "buffer wrap" ) {
+TEST(SlickQueueTests, BufferWrap) {
   SlickQueue<char> queue(8);
   uint64_t read_cursor = 0;
-  
+
   auto reserved = queue.reserve(3);
-  REQUIRE( reserved == 0 );
+  EXPECT_EQ(reserved, 0);
   memcpy(queue[reserved], "123", 3);
   queue.publish(reserved, 3);
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 3);
-  REQUIRE( strncmp(read.first, "123", 3) == 0);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 3);
+  EXPECT_EQ(strncmp(read.first, "123", 3), 0);
 
   reserved = queue.reserve(3);
-  REQUIRE( reserved == 3 );
+  EXPECT_EQ(reserved, 3);
   memcpy(queue[reserved], "456", 3);
   queue.publish(reserved, 3);
   read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 6);
-  REQUIRE( strncmp(read.first, "456", 3) == 0);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 6);
+  EXPECT_EQ(strncmp(read.first, "456", 3), 0);
 
   reserved = queue.reserve(3);
-  REQUIRE( reserved == 8 );
+  EXPECT_EQ(reserved, 8);
   memcpy(queue[reserved], "789", 3);
 
   // read before publish, the read_cursor should changed to new location
   read = queue.read(read_cursor);
-  REQUIRE( read_cursor == 8 );
-  REQUIRE( read.first == nullptr );
-  REQUIRE( read.second == 0 );
+  EXPECT_EQ(read_cursor, 8);
+  EXPECT_EQ(read.first, nullptr);
+  EXPECT_EQ(read.second, 0);
 
   queue.publish(reserved, 3);
   read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 11);
-  REQUIRE( strncmp(read.first, "789", 3) == 0);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 11);
+  EXPECT_EQ(strncmp(read.first, "789", 3), 0);
 }
 
-TEST_CASE( "Atomic cursor - multiple consumers work-stealing" ) {
+TEST(SlickQueueTests, AtomicCursorWorkStealing) {
   SlickQueue<int> queue(1024);
   std::atomic<uint64_t> shared_cursor{0};
   std::atomic<int> total_consumed{0};
@@ -150,7 +149,6 @@ TEST_CASE( "Atomic cursor - multiple consumers work-stealing" ) {
   c3.join();
 
   // Verify all 200 items were consumed exactly once
-  REQUIRE(total_consumed.load() == 200);
-  REQUIRE(shared_cursor.load() == 200);
+  EXPECT_EQ(total_consumed.load(), 200);
+  EXPECT_EQ(shared_cursor.load(), 200);
 }
-

@@ -1,47 +1,46 @@
-#define CATCH_CONFIG_NO_POSIX_SIGNALS
-#include "catch.hh"
-#include <slick_queue/slick_queue.h>
+#include <gtest/gtest.h>
+#include <slick/slick_queue.h>
 #include <thread>
 
 using namespace slick;
 
-TEST_CASE("Read empty queue - shm") {
+TEST(ShmTests, ReadEmptyQueue) {
   SlickQueue<int> queue(2, "sq_read_empty");
   uint64_t read_cursor = 0;
   auto read = queue.read(read_cursor);
-  REQUIRE(read.first == nullptr);
+  EXPECT_EQ(read.first, nullptr);
 }
 
-TEST_CASE( "Reserve - shm") {
+TEST(ShmTests, Reserve) {
   SlickQueue<int> queue(2, "sq_reserve");
   auto reserved = queue.reserve();
-  REQUIRE( reserved == 0 );
-  REQUIRE( queue.reserve() == 1);
-  REQUIRE( queue.reserve() == 2);
+  EXPECT_EQ(reserved, 0);
+  EXPECT_EQ(queue.reserve(), 1);
+  EXPECT_EQ(queue.reserve(), 2);
 }
 
-TEST_CASE( "Read should fail w/o publish - shm") {
+TEST(ShmTests, ReadShouldFailWithoutPublish) {
   SlickQueue<int> queue(2, "sq_read_fail");
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first == nullptr );
-  REQUIRE( read_cursor == 0);
+  EXPECT_EQ(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 0);
 }
 
-TEST_CASE( "Publish and read - shm" ) {
+TEST(ShmTests, PublishAndRead) {
   SlickQueue<int> queue(2, "sq_publish_read");
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
   *queue[reserved] = 5;
   queue.publish(reserved);
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 1);
-  REQUIRE( *read.first == 5);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
+  EXPECT_EQ(*read.first, 5);
 }
 
-TEST_CASE( "Publish and read multiple - shm" ) {
+TEST(ShmTests, PublishAndReadMultiple) {
   SlickQueue<int> queue(4, "sq_publish_read_multiple");
   uint64_t read_cursor = 0;
   auto reserved = queue.reserve();
@@ -53,30 +52,30 @@ TEST_CASE( "Publish and read multiple - shm" ) {
   *queue[reserved2] = 23;
   queue.publish(reserved2);
   auto read = queue.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 1);
-  REQUIRE( *read.first == 5);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
+  EXPECT_EQ(*read.first, 5);
 
   read = queue.read(read_cursor);
-  REQUIRE( read.first == nullptr );
-  REQUIRE( read_cursor == 1);
+  EXPECT_EQ(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
 
   queue.publish(reserved1);
   read = queue.read(read_cursor);
-  REQUIRE(read.first != nullptr);
-  REQUIRE(read_cursor == 2);
-  REQUIRE(*read.first == 12);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 2);
+  EXPECT_EQ(*read.first, 12);
 
   read = queue.read(read_cursor);
-  REQUIRE(read.first != nullptr);
-  REQUIRE(read_cursor == 3);
-  REQUIRE(*read.first == 23);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 3);
+  EXPECT_EQ(*read.first, 23);
 }
 
-TEST_CASE( "Server Client - shm" ) {
+TEST(ShmTests, ServerClient) {
   SlickQueue<int> server(4, "sq_server_cleint");
   SlickQueue<int> client("sq_server_cleint");
-  REQUIRE(client.size() == 4);
+  EXPECT_EQ(client.size(), 4);
 
   auto reserved = server.reserve();
   *server[reserved] = 5;
@@ -86,30 +85,30 @@ TEST_CASE( "Server Client - shm" ) {
   auto reserved2 = server.reserve();
   *server[reserved2] = 23;
   server.publish(reserved2);
-  
+
   uint64_t read_cursor = 0;
   auto read = client.read(read_cursor);
-  REQUIRE( read.first != nullptr );
-  REQUIRE( read_cursor == 1);
-  REQUIRE( *read.first == 5);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
+  EXPECT_EQ(*read.first, 5);
 
   read = client.read(read_cursor);
-  REQUIRE( read.first == nullptr );
-  REQUIRE( read_cursor == 1);
+  EXPECT_EQ(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 1);
 
   server.publish(reserved1);
   read = client.read(read_cursor);
-  REQUIRE(read.first != nullptr);
-  REQUIRE(read_cursor == 2);
-  REQUIRE(*read.first == 12);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 2);
+  EXPECT_EQ(*read.first, 12);
 
   read = client.read(read_cursor);
-  REQUIRE(read.first != nullptr);
-  REQUIRE(read_cursor == 3);
-  REQUIRE(*read.first == 23);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(read_cursor, 3);
+  EXPECT_EQ(*read.first, 23);
 }
 
-TEST_CASE( "Atomic cursor - shared memory work-stealing" ) {
+TEST(ShmTests, AtomicCursorWorkStealing) {
   SlickQueue<int> server(1024, "sq_atomic_cursor_shm");
   SlickQueue<int> client1("sq_atomic_cursor_shm");
   SlickQueue<int> client2("sq_atomic_cursor_shm");
@@ -147,16 +146,22 @@ TEST_CASE( "Atomic cursor - shared memory work-stealing" ) {
   c2.join();
 
   // Verify all 100 items were consumed exactly once
-  REQUIRE(total_consumed.load() == 100);
-  REQUIRE(shared_cursor.load() == 100);
+  EXPECT_EQ(total_consumed.load(), 100);
+  EXPECT_EQ(shared_cursor.load(), 100);
 }
 
-TEST_CASE( "Size mismatch - shm" ) {
+TEST(ShmTests, SizeMismatch) {
   // Create a shared memory queue with size 4
   SlickQueue<int> server(4, "sq_size_mismatch");
 
   // Try to create another queue with same name but different size
   // This should throw an exception
-  REQUIRE_THROWS_WITH(SlickQueue<int>(8, "sq_size_mismatch"),
-    Catch::Matchers::Contains("Shared memory size mismatch"));
+  EXPECT_THROW({
+    try {
+      SlickQueue<int>(8, "sq_size_mismatch");
+    } catch (const std::runtime_error& e) {
+      EXPECT_TRUE(std::string(e.what()).find("Shared memory size mismatch") != std::string::npos);
+      throw;
+    }
+  }, std::runtime_error);
 }

@@ -1,3 +1,7 @@
+# v1.0.0.2 - 2025-10-21
+- Changed include folder from include/slick_queue to include/slick
+- Changed test framework from catch2 to googletest
+
 # v1.1.0.1 - 2025-10-21
 - Fixed Linux implementation to read size from shared memory when opening existing segments
 - Added size validation when opening existing shared memory with size mismatch
