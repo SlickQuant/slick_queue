@@ -28,7 +28,7 @@ over shared memory for inter-process communication.
 SlickQueue is header-only. Simply add the `include` directory to your project's include path:
 
 ```cpp
-#include "slick/slick_queue.h"
+#include "slick/queue.h"
 ```
 
 ### Using CMake
@@ -53,7 +53,7 @@ target_link_libraries(your_target PRIVATE slick_queue)
 ### Basic Example
 
 ```cpp
-#include "slick/slick_queue.h"
+#include "slick/queue.h"
 
 // Create a queue with 1024 slots (must be power of 2)
 slick::SlickQueue<int> queue(1024);
@@ -74,7 +74,7 @@ if (result.first != nullptr) {
 ### Shared Memory Example (IPC)
 
 ```cpp
-#include "slick/slick_queue.h"
+#include "slick/queue.h"
 
 // Process 1 (Server/Writer)
 slick::SlickQueue<int> server(1024, "my_queue");
@@ -94,7 +94,7 @@ if (result.first != nullptr) {
 ### Multi-Producer Multi-Consumer
 
 ```cpp
-#include "slick/slick_queue.h"
+#include "slick/queue.h"
 #include <thread>
 
 slick::SlickQueue<int> queue(1024);
@@ -134,7 +134,7 @@ c1.join(); c2.join();
 ### Work-Stealing with Shared Atomic Cursor
 
 ```cpp
-#include "slick/slick_queue.h"
+#include "slick/queue.h"
 #include <thread>
 #include <atomic>
 

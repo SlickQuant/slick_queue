@@ -1,5 +1,6 @@
 # v1.0.0.2 - 2025-10-21
 - Changed include folder from include/slick_queue to include/slick
+- Changed slick_queue.h to queue.h
 - Changed test framework from catch2 to googletest
 
 # v1.1.0.1 - 2025-10-21
