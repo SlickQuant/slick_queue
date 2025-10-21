@@ -232,4 +232,6 @@ ctest --output-on-failure
 
 SlickQueue is released under the [MIT License](LICENSE).
 
+**Made with ⚡ by [SlickQuant](https://github.com/SlickQuant)**
+
 
