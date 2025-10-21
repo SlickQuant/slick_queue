@@ -411,6 +411,19 @@ private:
 
             if (err != ERROR_ALREADY_EXISTS) {
                 own_ = true;
+            } else {
+                // Shared memory already exists, need to read and validate size
+                auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, 64);
+                if (!lpvMem) {
+                    auto err = GetLastError();
+                    throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(err));
+                }
+                uint32_t shm_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
+                UnmapViewOfFile(lpvMem);
+
+                if (shm_size != size_) {
+                    throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(shm_size));
+                }
             }
         }
 
@@ -434,7 +447,7 @@ private:
     }
 #else
     void allocate_shm_data(const char* const shm_name, bool open_only) {
-        size_t BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+        size_t BF_SZ;
         shm_name_ = shm_name;
         int flags = open_only ? O_RDWR : (O_RDWR | O_CREAT | O_EXCL);
         shm_fd_ = shm_open(shm_name, flags, 0666);
@@ -446,12 +459,37 @@ private:
                     throw std::runtime_error("Failed to open existing shm. err=" + std::to_string(errno));
                 }
                 own_ = false;
+
+                // Read size from shared memory and verify it matches
+                void* temp_map = mmap(nullptr, 64, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
+                if (temp_map == MAP_FAILED) {
+                    throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
+                }
+                uint32_t shm_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
+                munmap(temp_map, 64);
+
+                if (shm_size != size_) {
+                    throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(shm_size));
+                }
             } else {
                 throw std::runtime_error("Failed to open/create shm. err=" + std::to_string(errno));
             }
         } else {
             own_ = !open_only;
         }
+
+        if (open_only) {
+            // Map first 64 bytes to read the size
+            void* temp_map = mmap(nullptr, 64, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
+            if (temp_map == MAP_FAILED) {
+                throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
+            }
+            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
+            mask_ = size_ - 1;
+            munmap(temp_map, 64);
+        }
+
+        BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
 
         if (own_) {
             if (ftruncate(shm_fd_, BF_SZ) == -1) {

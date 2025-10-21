@@ -1,3 +1,7 @@
+# v1.1.0.1 - 2025-10-21
+- Fixed Linux implementation to read size from shared memory when opening existing segments
+- Added size validation when opening existing shared memory with size mismatch
+
 # v1.1.0.0 - 2025-10-04
 - Fixed size calculation in shared memory mapping to use reserved_info struct
 - Added server-client shared memory test case

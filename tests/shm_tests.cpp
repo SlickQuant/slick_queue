@@ -150,3 +150,13 @@ TEST_CASE( "Atomic cursor - shared memory work-stealing" ) {
   REQUIRE(total_consumed.load() == 100);
   REQUIRE(shared_cursor.load() == 100);
 }
+
+TEST_CASE( "Size mismatch - shm" ) {
+  // Create a shared memory queue with size 4
+  SlickQueue<int> server(4, "sq_size_mismatch");
+
+  // Try to create another queue with same name but different size
+  // This should throw an exception
+  REQUIRE_THROWS_WITH(SlickQueue<int>(8, "sq_size_mismatch"),
+    Catch::Matchers::Contains("Shared memory size mismatch"));
+}
