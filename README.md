@@ -2,7 +2,10 @@
 
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Header-only](https://img.shields.io/badge/header--only-yes-brightgreen.svg)](#installation)
+[![Lock-free](https://img.shields.io/badge/concurrency-lock--free-orange.svg)](#architecture)
 [![CI](https://github.com/SlickQuant/slick_queue/actions/workflows/ci.yml/badge.svg)](https://github.com/SlickQuant/slick_queue/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/SlickQuant/slick_queue)](https://github.com/SlickQuant/slick_queue/releases)
 
 SlickQueue is a header-only C++ library that provides a lock-free,
 multi-producer multi-consumer (MPMC) queue built on a ring buffer. It is
