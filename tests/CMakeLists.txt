@@ -14,7 +14,7 @@ endif()
 
 add_executable(slick_queue_tests tests.cpp shm_tests.cpp)
 
-target_link_libraries(slick_queue_tests PRIVATE slick_queue GTest::gtest_main)
+target_link_libraries(slick_queue_tests PRIVATE slick::slick_queue GTest::gtest_main)
 
 enable_testing()
 include(GoogleTest)

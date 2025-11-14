@@ -8,6 +8,7 @@ project(slick_queue
 set(CMAKE_CXX_STANDARD 20)
 
 add_library(slick_queue INTERFACE)
+add_library(slick::slick_queue ALIAS slick_queue)
 target_include_directories(slick_queue INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
