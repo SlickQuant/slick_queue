@@ -1,3 +1,6 @@
+# v1.1.2 - 2025-11-14
+- Add alias target to provide the same slick::slick_queue name during build time
+
 # v1.1.1 - 2025-11-14
 - Updated CMakeLists.txt and added cmake config for vcpkg integration.
 - Changed version number to three digits.
