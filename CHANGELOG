@@ -1,3 +1,13 @@
+# v1.2.0 - 2025-12-19
+- **BREAKING CHANGE**: Refactored `reserved_info` from struct to packed uint64_t for guaranteed lock-free atomics
+  - Uses 48-bit index (supports 2^48 = 281 trillion iterations) and 16-bit size
+  - `std::atomic<reserved_info>` is now always lock-free on all platforms
+  - Reserve size limit of 65,535 (2^16 - 1) when using `read_last()` - see documentation
+- Added `HEADER_SIZE` constant to replace magic number 64 in shared memory layout
+- Added element size validation in shared memory to prevent type mismatches between processes
+- Updated README with vcpkg installation instructions
+- Updated README with lock-free implementation details and constraints documentation
+
 # v1.1.2 - 2025-11-14
 - Add alias target to provide the same slick::slick_queue name during build time
 

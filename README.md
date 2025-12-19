@@ -34,7 +34,22 @@ SlickQueue is header-only. Simply add the `include` directory to your project's 
 #include "slick/queue.h"
 ```
 
-### Using CMake
+### Using vcpkg
+
+SlickQueue is available in the [vcpkg](https://github.com/microsoft/vcpkg) package manager:
+
+```bash
+vcpkg install slick-queue
+```
+
+Then in your CMakeLists.txt:
+
+```cmake
+find_package(slick_queue CONFIG REQUIRED)
+target_link_libraries(your_target PRIVATE slick_queue::slick_queue)
+```
+
+### Using CMake FetchContent
 
 ```cmake
 include(FetchContent)
@@ -192,12 +207,24 @@ SlickQueue(const char* shm_name);                  // Reader/Attacher
 
 ### Core Methods
 
-- `uint64_t reserve()` - Reserve a slot for writing (blocks if queue is full)
+- `uint64_t reserve(uint32_t n = 1)` - Reserve `n` slots for writing (blocks if queue is full)
 - `T* operator[](uint64_t slot)` - Access reserved slot
-- `void publish(uint64_t slot)` - Publish written data to consumers
+- `void publish(uint64_t slot, uint32_t n = 1)` - Publish `n` written items to consumers
 - `std::pair<T*, uint32_t> read(uint64_t& cursor)` - Read next available item (independent cursor)
 - `std::pair<T*, uint32_t> read(std::atomic<uint64_t>& cursor)` - Read next available item (shared atomic cursor for work-stealing)
+- `T* read_last()` - Read the most recently published item without a cursor
 - `uint32_t size()` - Get queue capacity
+- `void reset()` - Reset the queue, invalidating all existing data
+
+### Important Constraints
+
+**Lock-Free Atomics Implementation**: SlickQueue uses a packed 64-bit atomic internally to guarantee lock-free operations on all platforms. This packs both the write index (48 bits) and the reservation size (16 bits) into a single atomic value.
+
+**⚠️ Reserve Size Limitation**: When using `read_last()`, the number of slots in any `reserve(n)` call **must not exceed 65,535** (2^16 - 1). This is because the size is stored in 16 bits within the packed atomic.
+
+- For typical use cases with `reserve()` or `reserve(1)`, this limit is not a concern
+- If you need to reserve more than 65,535 slots at once, do not use `read_last()`
+- The 48-bit index supports up to 2^48 (281 trillion) iterations, sufficient for any practical application
 
 ## Performance Characteristics
 

@@ -51,10 +51,7 @@ class SlickQueue {
         uint32_t size = 1;
     };
 
-    struct reserved_info {
-        uint_fast64_t index_ = 0;
-        uint_fast32_t size_ = 0;
-    };
+    using reserved_info = uint64_t;
 
     uint32_t size_;
     uint32_t mask_;
@@ -72,6 +69,8 @@ class SlickQueue {
     void* lpvMem_ = nullptr;
     std::string shm_name_;
 #endif
+
+    static constexpr uint32_t HEADER_SIZE = 64;
 
 public:
     /**
@@ -125,7 +124,7 @@ public:
         }
 #else
         if (lpvMem_) {
-            auto BF_SZ = static_cast<size_t>(64 + sizeof(slot) * size_ + sizeof(T) * size_);
+            auto BF_SZ = static_cast<size_t>(HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_);
             munmap(lpvMem_, BF_SZ);
             lpvMem_ = nullptr;
         }
@@ -170,7 +169,7 @@ public:
      * @return Initial reading index
      */
     uint64_t initial_reading_index() const noexcept {
-        return reserved_->load(std::memory_order_relaxed).index_;
+        return get_index(reserved_->load(std::memory_order_relaxed));
     }
 
     /**
@@ -183,30 +182,27 @@ public:
             throw std::runtime_error("required size " + std::to_string(n) + " > queue size " + std::to_string(size_));
         }
         auto reserved = reserved_->load(std::memory_order_relaxed);
-        reserved_info next;
+        uint64_t next;
         uint64_t index;
         bool buffer_wrapped = false;
         do {
             buffer_wrapped = false;
-            next = reserved;
-            index = reserved.index_;
+            index = get_index(reserved);
             auto idx = index & mask_;
             if ((idx + n) > size_) {
                 // if there is no enough buffer left, start from the beginning
                 index += size_ - idx;
-                next.index_ = index + n;
-                next.size_ = n;
+                next = make_reserved_info(index + n, n);
                 buffer_wrapped = true;
             }
             else {
-                next.index_ += n;
-                next.size_ = n;
+                next = make_reserved_info(index + n, n);
             }
         } while(!reserved_->compare_exchange_weak(reserved, next, std::memory_order_release, std::memory_order_relaxed));
         if (buffer_wrapped) {
             // queue wrapped, set current slock.data_index to the reserved index to let the reader
             // know the next available data is in different slot.
-            auto& slot = control_[reserved.index_ & mask_];
+            auto& slot = control_[get_index(reserved) & mask_];
             slot.size = n;
             slot.data_index.store(index, std::memory_order_release);
         }
@@ -254,7 +250,7 @@ public:
             auto idx = read_index & mask_;
             current_slot = &control_[idx];
             index = current_slot->data_index.load(std::memory_order_acquire);
-            if (index != std::numeric_limits<uint64_t>::max() && reserved_->load(std::memory_order_relaxed).index_ < index) [[unlikely]] {
+            if (index != std::numeric_limits<uint64_t>::max() && get_index(reserved_->load(std::memory_order_relaxed)) < index) [[unlikely]] {
                 // queue has been reset
                 read_index = 0;
             }
@@ -291,7 +287,7 @@ public:
             slot* current_slot = &control_[idx];
             uint64_t index = current_slot->data_index.load(std::memory_order_acquire);
 
-            if (index != std::numeric_limits<uint64_t>::max() && reserved_->load(std::memory_order_relaxed).index_ < index) [[unlikely]] {
+            if (index != std::numeric_limits<uint64_t>::max() && get_index(reserved_->load(std::memory_order_relaxed)) < index) [[unlikely]] {
                 // queue has been reset
                 read_index.store(0, std::memory_order_release);
                 continue;
@@ -323,11 +319,12 @@ public:
     */
     T* read_last() noexcept {
         auto reserved = reserved_->load(std::memory_order_relaxed);
-        if (reserved.index_ == 0) {
+        auto index = get_index(reserved);
+        if (index == 0) {
             return nullptr;
         }
-        auto index = reserved.index_ - reserved.size_;
-        return &data_[index & mask_];
+        auto last_index = index - get_size(reserved);
+        return &data_[last_index & mask_];
     }
 
     /**
@@ -337,15 +334,27 @@ public:
      */
     void reset() noexcept {
         if (use_shm_) {
-            control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
+            control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];
         } else {
             delete [] control_;
             control_ = new slot[size_];
         }
-        reserved_->store(reserved_info(), std::memory_order_release);
+        reserved_->store(0, std::memory_order_release);
     }
 
 private:
+    // Helper functions for packing/unpacking reserved_info (16-bit size, 48-bit index)
+    static constexpr uint64_t make_reserved_info(uint64_t index, uint32_t size) noexcept {
+        return ((index & 0xFFFFFFFFFFFFULL) << 16) | (size & 0xFFFF);
+    }
+
+    static constexpr uint64_t get_index(uint64_t reserved) noexcept {
+        return reserved >> 16;
+    }
+
+    static constexpr uint32_t get_size(uint64_t reserved) noexcept {
+        return static_cast<uint32_t>(reserved & 0xFFFF);
+    }
 
 #if defined(_MSC_VER)
     void allocate_shm_data(const char* const shm_name, bool open_only) {
@@ -372,18 +381,22 @@ private:
                 throw std::runtime_error("Failed to open shm. err=" + std::to_string(err));
             }
 
-            auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, 64);
+            auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, HEADER_SIZE);
             if (!lpvMem) {
                 auto err = GetLastError();
                 throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
             }
             size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
+            auto element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
+            if (element_size != sizeof(T)) {
+                throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
+            }
             mask_ = size_ - 1;
-            BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+            BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
             UnmapViewOfFile(lpvMem);
         }
         else {
-            BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+            BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
 
             SECURITY_ATTRIBUTES sa;
             sa.nLength = sizeof(SECURITY_ATTRIBUTES);
@@ -413,16 +426,21 @@ private:
                 own_ = true;
             } else {
                 // Shared memory already exists, need to read and validate size
-                auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, 64);
+                auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, HEADER_SIZE);
                 if (!lpvMem) {
                     auto err = GetLastError();
                     throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(err));
                 }
-                uint32_t shm_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
+                uint32_t queue_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
+                uint32_t element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
                 UnmapViewOfFile(lpvMem);
 
-                if (shm_size != size_) {
-                    throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(shm_size));
+                if (queue_size != size_) {
+                    throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(queue_size));
+                }
+
+                if (element_size != sizeof(T)) {
+                    throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
                 }
             }
         }
@@ -435,14 +453,17 @@ private:
 
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic<reserved_info>();
+            // save queue size
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
-            control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
-            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
+            // save element size
+            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(size_)) = sizeof(T);
+            control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];
+            data_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_) T[size_];
         }
         else {
             reserved_ = reinterpret_cast<std::atomic<reserved_info>*>(lpvMem_);
-            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
-            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
+            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + HEADER_SIZE);
+            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_);
         }
     }
 #else
@@ -461,12 +482,12 @@ private:
                 own_ = false;
 
                 // Read size from shared memory and verify it matches
-                void* temp_map = mmap(nullptr, 64, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
+                void* temp_map = mmap(nullptr, HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
                 if (temp_map == MAP_FAILED) {
                     throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
                 }
                 uint32_t shm_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
-                munmap(temp_map, 64);
+                munmap(temp_map, HEADER_SIZE);
 
                 if (shm_size != size_) {
                     throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(shm_size));
@@ -480,16 +501,16 @@ private:
 
         if (open_only) {
             // Map first 64 bytes to read the size
-            void* temp_map = mmap(nullptr, 64, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
+            void* temp_map = mmap(nullptr, HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
             if (temp_map == MAP_FAILED) {
                 throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
             }
             size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
             mask_ = size_ - 1;
-            munmap(temp_map, 64);
+            munmap(temp_map, HEADER_SIZE);
         }
 
-        BF_SZ = 64 + sizeof(slot) * size_ + sizeof(T) * size_;
+        BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
 
         if (own_) {
             if (ftruncate(shm_fd_, BF_SZ) == -1) {
@@ -504,13 +525,14 @@ private:
 
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic<reserved_info>();
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = mask_ + 1;
-            control_ = new ((uint8_t*)lpvMem_ + 64) slot[size_];
-            data_ = new ((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_) T[size_];
+            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
+            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(size_)) = sizeof(T);
+            control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];
+            data_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_) T[size_];
         } else {
             reserved_ = reinterpret_cast<std::atomic<reserved_info>*>(lpvMem_);
-            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + 64);
-            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + 64 + sizeof(slot) * size_);
+            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + HEADER_SIZE);
+            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_);
         }
     }
 #endif
