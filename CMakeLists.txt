@@ -21,11 +21,7 @@ endif()
 option(BUILD_SLICK_QUEUE_TESTS "Build tests" ON)
 if(BUILD_SLICK_QUEUE_TESTS)
     enable_testing()
-    if (WIN32)
-        add_subdirectory(tests)
-    else()
-        add_subdirectory(tests EXCLUDE_FROM_ALL)
-    endif()
+    add_subdirectory(tests)
 endif()
 
 # Installation rules

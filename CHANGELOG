@@ -1,5 +1,6 @@
 # v1.2.1 - 2025-12-27
 - Fixed a race condition when multi-process trying to create the same shared memory segment
+- Fixed CTest integration by moving enable_testing() to root CMakeLists.txt and removing EXCLUDE_FROM_ALL
 - Added release workflow
 
 # v1.2.0 - 2025-12-19
