@@ -64,34 +64,3 @@ install(EXPORT slick_queueTargets
 )
 
 message(STATUS "slick_queue: ${PROJECT_VERSION}")
-
-# # Automatically run install after build in Release mode
-# if(CMAKE_BUILD_TYPE STREQUAL "Release")
-#     add_custom_target(dist_slick_queue ALL
-#         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/dist/include
-#         COMMENT "Copying slick_queue headers to dist/include"
-#         VERBATIM
-#     )
-
-#     if (MSVC)
-#         set_target_properties(dist_slick_queue PROPERTIES
-#             VS_GLOBAL_IntDir "$(Platform)\\$(Configuration)\\dist_slick_queue\\"
-#         )
-#     endif()
-
-#     if (PROJECT_IS_TOP_LEVEL)
-#         add_custom_target(package_slick_queue ALL
-#             COMMAND ${CMAKE_COMMAND} -E tar "cfv" "${CMAKE_BINARY_DIR}/dist/slick_queue_${PROJECT_VERSION}.zip" --format=zip "${CMAKE_CURRENT_SOURCE_DIR}/include"
-#             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-#             COMMENT "Creating zip archive"
-#         )
-#         add_dependencies(package_slick_queue dist_slick_queue)
-
-#         if (MSVC)
-#             set_target_properties(package_slick_queue PROPERTIES
-#                 VS_GLOBAL_IntDir "$(Platform)\\$(Configuration)\\package_slick_queue\\"
-#             )
-#         endif()
-#     endif()
-# endif()
-
