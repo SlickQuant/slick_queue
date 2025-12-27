@@ -1,0 +1,64 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0, v1.0.0, etc.
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          if [ -f CHANGELOG ]; then
+            # Extract the section for this version from CHANGELOG
+            VERSION="${{ github.ref_name }}"
+            # Escape dots in version for regex
+            VERSION_ESCAPED=$(echo "$VERSION" | sed 's/\./\\./g')
+            # Use awk to extract content: start at version header, stop at next ## header
+            CHANGES=$(awk "BEGIN{p=0} /^# $VERSION_ESCAPED/{p=1;next} /^# /{p=0} p" CHANGELOG | sed '/^$/d')
+
+            if [ -z "$CHANGES" ]; then
+              echo "CHANGELOG_CONTENT=No changelog entry found for this version." >> $GITHUB_OUTPUT
+            else
+              # Escape newlines for GitHub output
+              echo "CHANGELOG_CONTENT<<EOF" >> $GITHUB_OUTPUT
+              echo "$CHANGES" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "CHANGELOG_CONTENT=CHANGELOG not found." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create header archive
+        run: |
+          cd include
+          zip -r ../slick_shm-${{ steps.get_version.outputs.VERSION }}-headers.zip slick/
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## Changes
+
+            ${{ steps.changelog.outputs.CHANGELOG_CONTENT }}
+
+          draft: true
+          prerelease: false
+          generate_release_notes: false
+          files: |
+            slick_shm-${{ steps.get_version.outputs.VERSION }}-headers.zip

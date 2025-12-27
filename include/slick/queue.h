@@ -16,6 +16,8 @@
 #include <stdexcept>
 #include <string>
 #include <cassert>
+#include <thread>
+#include <chrono>
 
 #if defined(_MSC_VER)
 #ifndef NOMINMAX
@@ -364,9 +366,10 @@ private:
 #ifndef UNICODE
         std::string shmName = shm_name;
 #else
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, shm_name, static_cast<int>(strlen(shm_name)), NULL, 0);
+        int shm_name_sz = static_cast<int>(strlen(shm_name));
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, shm_name, shm_name_sz, NULL, 0);
         std::wstring shmName(size_needed, 0);
-        MultiByteToWideChar(CP_UTF8, 0, shm_name, strlen(shm_name), &shmName[0], size_needed);
+        MultiByteToWideChar(CP_UTF8, 0, shm_name, shm_name_sz, &shmName[0], size_needed);
 #endif
 
         if (open_only) {
@@ -425,6 +428,11 @@ private:
             if (err != ERROR_ALREADY_EXISTS) {
                 own_ = true;
             } else {
+                // when multiple process trying to create the same shared memory segment,
+                // there is a chance that the segment is created but not yet initialized.
+                // so we need to wait until the segment is initialized.
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
                 // Shared memory already exists, need to read and validate size
                 auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, HEADER_SIZE);
                 if (!lpvMem) {
@@ -480,6 +488,11 @@ private:
                     throw std::runtime_error("Failed to open existing shm. err=" + std::to_string(errno));
                 }
                 own_ = false;
+
+                // when multiple process trying to create the same shared memory segment,
+                // there is a chance that the segment is created but not yet initialized.
+                // so we need to wait until the segment is initialized.
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
                 // Read size from shared memory and verify it matches
                 void* temp_map = mmap(nullptr, HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
