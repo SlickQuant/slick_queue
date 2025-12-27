@@ -1,3 +1,7 @@
+# v1.2.1 - 2025-12-27
+- Fixed a race condition when multi-process trying to create the same shared memory segment
+- Added release workflow
+
 # v1.2.0 - 2025-12-19
 - **BREAKING CHANGE**: Refactored `reserved_info` from struct to packed uint64_t for guaranteed lock-free atomics
   - Uses 48-bit index (supports 2^48 = 281 trillion iterations) and 16-bit size
