@@ -46,7 +46,7 @@ Then in your CMakeLists.txt:
 
 ```cmake
 find_package(slick-queue CONFIG REQUIRED)
-target_link_libraries(your_target PRIVATE slick::queue)
+target_link_libraries(your_target PRIVATE slick::slick-queue)
 ```
 
 ### Using CMake FetchContent
