@@ -63,7 +63,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(slick-queue)
 
-target_link_libraries(your_target PRIVATE slick::queue)
+target_link_libraries(your_target PRIVATE slick::slick-queue)
 ```
 
 ## Usage
