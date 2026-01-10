@@ -12,9 +12,9 @@ if(NOT GTest_FOUND)
   FetchContent_MakeAvailable(googletest)
 endif()
 
-add_executable(slick_queue_tests tests.cpp shm_tests.cpp)
+add_executable(slick-queue-tests tests.cpp shm_tests.cpp)
 
-target_link_libraries(slick_queue_tests PRIVATE slick::slick_queue GTest::gtest_main)
+target_link_libraries(slick-queue-tests PRIVATE slick::queue GTest::gtest_main)
 
 include(GoogleTest)
-gtest_discover_tests(slick_queue_tests)
+gtest_discover_tests(slick-queue-tests)

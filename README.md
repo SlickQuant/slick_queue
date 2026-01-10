@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Header-only](https://img.shields.io/badge/header--only-yes-brightgreen.svg)](#installation)
 [![Lock-free](https://img.shields.io/badge/concurrency-lock--free-orange.svg)](#architecture)
-[![CI](https://github.com/SlickQuant/slick_queue/actions/workflows/ci.yml/badge.svg)](https://github.com/SlickQuant/slick_queue/actions/workflows/ci.yml)
-[![GitHub release](https://img.shields.io/github/v/release/SlickQuant/slick_queue)](https://github.com/SlickQuant/slick_queue/releases)
+[![CI](https://github.com/SlickQuant/slick-queue/actions/workflows/ci.yml/badge.svg)](https://github.com/SlickQuant/slick-queue/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/SlickQuant/slick-queue)](https://github.com/SlickQuant/slick-queue/releases)
 
 SlickQueue is a header-only C++ library that provides a lock-free,
 multi-producer multi-consumer (MPMC) queue built on a ring buffer. It is
@@ -45,8 +45,8 @@ vcpkg install slick-queue
 Then in your CMakeLists.txt:
 
 ```cmake
-find_package(slick_queue CONFIG REQUIRED)
-target_link_libraries(your_target PRIVATE slick_queue::slick_queue)
+find_package(slick-queue CONFIG REQUIRED)
+target_link_libraries(your_target PRIVATE slick::queue)
 ```
 
 ### Using CMake FetchContent
@@ -54,16 +54,16 @@ target_link_libraries(your_target PRIVATE slick_queue::slick_queue)
 ```cmake
 include(FetchContent)
 
-# Disable tests for slick_queue
+# Disable tests for slick-queue
 set(BUILD_SLICK_QUEUE_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
-    slick_queue
-    GIT_REPOSITORY https://github.com/SlickQuant/slick_queue.git
-    GIT_TAG v1.1.0.0  # See https://github.com/SlickQuant/slick_queue/releases for latest version
+    slick-queue
+    GIT_REPOSITORY https://github.com/SlickQuant/slick-queue.git
+    GIT_TAG v1.1.0.0  # See https://github.com/SlickQuant/slick-queue/releases for latest version
 )
-FetchContent_MakeAvailable(slick_queue)
+FetchContent_MakeAvailable(slick-queue)
 
-target_link_libraries(your_target PRIVATE slick_queue)
+target_link_libraries(your_target PRIVATE slick::queue)
 ```
 
 ## Usage
