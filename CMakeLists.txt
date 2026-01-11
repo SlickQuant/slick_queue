@@ -42,9 +42,23 @@ configure_package_config_file(
     INSTALL_DESTINATION lib/cmake/slick-queue
 )
 
+# Compatibility config for the legacy package name.
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/slick_queueConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/slick_queueConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/slick_queue
+)
+
 # Create the version file
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/slick-queueConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+# Create the version file for the legacy package name
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/slick_queueConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
@@ -54,6 +68,12 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/slick-queueConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/slick-queueConfigVersion.cmake"
     DESTINATION lib/cmake/slick-queue
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/slick_queueConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/slick_queueConfigVersion.cmake"
+    DESTINATION lib/cmake/slick_queue
 )
 
 # Install the target
