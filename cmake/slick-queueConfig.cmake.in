@@ -2,4 +2,12 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/slick-queueTargets.cmake")
 
+if(NOT TARGET slick::slick-queue AND TARGET slick::queue)
+    add_library(slick::slick-queue ALIAS slick::queue)
+endif()
+
+if(NOT TARGET slick::slick_queue AND TARGET slick::queue)
+    add_library(slick::slick_queue ALIAS slick::queue)
+endif()
+
 check_required_components(slick-queue)
