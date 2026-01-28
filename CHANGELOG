@@ -1,3 +1,6 @@
+# v1.2.3 - unreleased
+- Add limits header
+
 # v1.2.2 - 2026-01-10
 - Rename repository from slick_queue to slick-queue (hyphenated naming follows recommended convention)
 - Refactor repository name in CMake configuration files

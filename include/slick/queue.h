@@ -34,6 +34,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
+#include <limits>
 #endif
 
 namespace slick {
