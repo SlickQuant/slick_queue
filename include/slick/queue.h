@@ -1,5 +1,5 @@
 /********************************************************************************
- * Copyright (c) 2020-2025 SlickQuant
+ * Copyright (c) 2020-2026 Slick Quant LLC.
  * All rights reserved
  *
  * This file is part of the SlickQueue. Redistribution and use in source and
