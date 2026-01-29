@@ -18,6 +18,7 @@
 #include <cassert>
 #include <thread>
 #include <chrono>
+#include <limits>
 
 #if defined(_MSC_VER)
 #ifndef NOMINMAX
@@ -34,7 +35,15 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
-#include <limits>
+#endif
+
+
+#ifndef SLICK_QUEUE_ENABLE_LOSS_DETECTION
+#if !defined(NDEBUG)
+#define SLICK_QUEUE_ENABLE_LOSS_DETECTION 1
+#else
+#define SLICK_QUEUE_ENABLE_LOSS_DETECTION 0
+#endif
 #endif
 
 namespace slick {
@@ -44,6 +53,7 @@ namespace slick {
  * 
  * This queue allows a multiple producer thread to write data and a multiple consumer thread to read data concurrently without locks.
  * It can optionally use shared memory for inter-process communication.
+ * This queue is lossy: if producers outrun consumers, older data may be overwritten.
  * 
  * @tparam T The type of elements stored in the queue.
  */
@@ -61,7 +71,10 @@ class SlickQueue {
     T* data_ = nullptr;
     slot* control_ = nullptr;
     std::atomic<reserved_info>* reserved_ = nullptr;
-    std::atomic<reserved_info> reserved_local_;
+    std::atomic<reserved_info> reserved_local_{0};
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+    std::atomic<uint64_t> loss_count_{0};
+#endif
     bool own_ = false;
     bool use_shm_ = false;
 #if defined(_MSC_VER)
@@ -75,6 +88,10 @@ class SlickQueue {
 
     static constexpr uint32_t HEADER_SIZE = 64;
 
+    static constexpr bool is_power_of_two(uint32_t value) noexcept {
+        return value != 0 && ((value & (value - 1)) == 0);
+    }
+
 public:
     /**
      * @brief Construct a new SlickQueue object
@@ -87,16 +104,20 @@ public:
      */
     SlickQueue(uint32_t size, const char* const shm_name = nullptr)
         : size_(size)
-        , mask_(size - 1)
-        , data_(shm_name ? nullptr : new T[size_])   
-        , control_(shm_name ? nullptr : new slot[size_])
-        , reserved_(shm_name ? nullptr : &reserved_local_)
+        , mask_(size ? size - 1 : 0)
         , own_(shm_name == nullptr)
         , use_shm_(shm_name != nullptr)
     {
-        assert((size && !(size & (size - 1))) && "size must power of 2");
+        if (!is_power_of_two(size_)) {
+            throw std::invalid_argument("size must power of 2");
+        }
         if (shm_name) {
             allocate_shm_data(shm_name, false);
+        } else {
+            reserved_ = &reserved_local_;
+            reserved_->store(0, std::memory_order_relaxed);
+            data_ = new T[size_];
+            control_ = new slot[size_];
         }
     }
 
@@ -108,7 +129,9 @@ public:
      * @throws std::runtime_error if shared memory allocation fails or the segment does not exist.
      */
     SlickQueue(const char* const shm_name)
-        : own_(false)
+        : size_(0)
+        , mask_(0)
+        , own_(false)
         , use_shm_(true)
     {
         allocate_shm_data(shm_name, true);
@@ -167,6 +190,19 @@ public:
      */
     constexpr uint32_t size() const noexcept { return size_; }
 
+    
+    /**
+     * @brief Get the number of items skipped due to overwrite (debug-only if enabled).
+     * @return Count of skipped items observed by this queue instance.
+     */
+    uint64_t loss_count() const noexcept {
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+        return loss_count_.load(std::memory_order_relaxed);
+#else
+        return 0;
+#endif
+    }
+
     /**
      * @brief Get the initial reading index, which is 0 if the queue is newly created or the current writing index if opened existing 
      * @return Initial reading index
@@ -181,6 +217,9 @@ public:
      * @return The starting index of the reserved space
      */
     uint64_t reserve(uint32_t n = 1) {
+        if (n == 0) [[unlikely]] {
+            throw std::invalid_argument("required size must be > 0");
+        }
         if (n > size_) [[unlikely]] {
             throw std::runtime_error("required size " + std::to_string(n) + " > queue size " + std::to_string(size_));
         }
@@ -257,7 +296,13 @@ public:
                 // queue has been reset
                 read_index = 0;
             }
-    
+
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+            if (index != std::numeric_limits<uint64_t>::max() && index > read_index && ((index & mask_) == idx)) {
+                loss_count_.fetch_add(index - read_index, std::memory_order_relaxed);
+            }
+#endif
+
             if (index == std::numeric_limits<uint64_t>::max() || index < read_index) {
                 // data not ready yet
                 return std::make_pair(nullptr, 0);
@@ -300,7 +345,15 @@ public:
                 // data not ready yet
                 return std::make_pair(nullptr, 0);
             }
-            else if (index > current_index && ((index & mask_) != idx)) {
+
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+            uint64_t overrun = 0;
+            if (index > current_index && ((index & mask_) == idx)) {
+                overrun = index - current_index;
+            }
+#endif
+
+            if (index > current_index && ((index & mask_) != idx)) {
                 // queue wrapped, skip the unused slots
                 read_index.compare_exchange_weak(current_index, index, std::memory_order_release, std::memory_order_relaxed);
                 continue;
@@ -309,6 +362,11 @@ public:
             // Try to atomically claim this item
             uint64_t next_index = index + current_slot->size;
             if (read_index.compare_exchange_weak(current_index, next_index, std::memory_order_release, std::memory_order_relaxed)) {
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+                if (overrun != 0) {
+                    loss_count_.fetch_add(overrun, std::memory_order_relaxed);
+                }
+#endif
                 // Successfully claimed the item
                 return std::make_pair(&data_[current_index & mask_], current_slot->size);
             }
@@ -343,6 +401,9 @@ public:
             control_ = new slot[size_];
         }
         reserved_->store(0, std::memory_order_release);
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+        loss_count_.store(0, std::memory_order_relaxed);
+#endif
     }
 
 private:
@@ -394,6 +455,9 @@ private:
             auto element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
             if (element_size != sizeof(T)) {
                 throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
+            }
+            if (!is_power_of_two(size_)) {
+                throw std::runtime_error("Shared memory size must be power of 2. Got " + std::to_string(size_));
             }
             mask_ = size_ - 1;
             BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
@@ -462,6 +526,7 @@ private:
 
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic<reserved_info>();
+            reserved_->store(0, std::memory_order_relaxed);
             // save queue size
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
             // save element size
@@ -501,10 +566,15 @@ private:
                     throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
                 }
                 uint32_t shm_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
+                uint32_t element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>) + sizeof(shm_size));
                 munmap(temp_map, HEADER_SIZE);
 
                 if (shm_size != size_) {
                     throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(shm_size));
+                }
+
+                if (element_size != sizeof(T)) {
+                    throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
                 }
             } else {
                 throw std::runtime_error("Failed to open/create shm. err=" + std::to_string(errno));
@@ -520,8 +590,18 @@ private:
                 throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
             }
             size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
-            mask_ = size_ - 1;
+            uint32_t element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
             munmap(temp_map, HEADER_SIZE);
+
+            if (!is_power_of_two(size_)) {
+                throw std::runtime_error("Shared memory size must be power of 2. Got " + std::to_string(size_));
+            }
+
+            if (element_size != sizeof(T)) {
+                throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
+            }
+
+            mask_ = size_ - 1;
         }
 
         BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
@@ -539,6 +619,7 @@ private:
 
         if (own_) {
             reserved_ = new (lpvMem_) std::atomic<reserved_info>();
+            reserved_->store(0, std::memory_order_relaxed);
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
             *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(size_)) = sizeof(T);
             control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];

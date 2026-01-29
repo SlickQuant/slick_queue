@@ -1,4 +1,9 @@
 # v1.2.3 - unreleased
+- Initialize reserved counters for local and shared-memory queues
+- Validate shared-memory size is power-of-two and element size matches when attaching
+- Add lossy semantics documentation and debug loss detection counter
+- Add lossy overwrite tests for in-process and shared-memory queues
+- Guard against zero-length reservations
 - Add limits header
 
 # v1.2.2 - 2026-01-10

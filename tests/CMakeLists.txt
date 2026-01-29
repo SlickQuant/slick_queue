@@ -16,5 +16,8 @@ add_executable(slick-queue-tests tests.cpp shm_tests.cpp)
 
 target_link_libraries(slick-queue-tests PRIVATE slick::queue GTest::gtest_main)
 
+# Enable loss detection in tests
+target_compile_definitions(slick-queue-tests PRIVATE SLICK_QUEUE_ENABLE_LOSS_DETECTION=1)
+
 include(GoogleTest)
 gtest_discover_tests(slick-queue-tests)

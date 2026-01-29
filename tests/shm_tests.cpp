@@ -150,6 +150,43 @@ TEST(ShmTests, AtomicCursorWorkStealing) {
   EXPECT_EQ(shared_cursor.load(), 100);
 }
 
+TEST(ShmTests, LossyOverwriteSkipsOldData) {
+  SlickQueue<int> server(2, "sq_lossy_overwrite");
+  SlickQueue<int> client("sq_lossy_overwrite");
+
+  auto s0 = server.reserve();
+  *server[s0] = 10;
+  server.publish(s0);
+
+  auto s1 = server.reserve();
+  *server[s1] = 20;
+  server.publish(s1);
+
+  auto s2 = server.reserve();
+  *server[s2] = 30;
+  server.publish(s2);
+
+  uint64_t read_cursor = 0;
+  auto read = client.read(read_cursor);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(*read.first, 30);
+  EXPECT_EQ(read_cursor, 3);
+
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+  EXPECT_EQ(client.loss_count(), 2u);
+#endif
+
+  read = client.read(read_cursor);
+  EXPECT_EQ(read.first, nullptr);
+}
+
+TEST(ShmTests, ElementSizeMismatch) {
+  SlickQueue<int> server(4, "sq_element_mismatch");
+  EXPECT_THROW({
+    SlickQueue<double> client("sq_element_mismatch");
+  }, std::runtime_error);
+}
+
 TEST(ShmTests, SizeMismatch) {
   // Create a shared memory queue with size 4
   SlickQueue<int> server(4, "sq_size_mismatch");

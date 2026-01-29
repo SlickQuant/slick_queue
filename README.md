@@ -207,18 +207,23 @@ SlickQueue(const char* shm_name);                  // Reader/Attacher
 
 ### Core Methods
 
-- `uint64_t reserve(uint32_t n = 1)` - Reserve `n` slots for writing (blocks if queue is full)
+- `uint64_t reserve(uint32_t n = 1)` - Reserve `n` slots for writing (non-blocking; may overwrite old data if consumers lag)
 - `T* operator[](uint64_t slot)` - Access reserved slot
 - `void publish(uint64_t slot, uint32_t n = 1)` - Publish `n` written items to consumers
 - `std::pair<T*, uint32_t> read(uint64_t& cursor)` - Read next available item (independent cursor)
 - `std::pair<T*, uint32_t> read(std::atomic<uint64_t>& cursor)` - Read next available item (shared atomic cursor for work-stealing)
 - `T* read_last()` - Read the most recently published item without a cursor
 - `uint32_t size()` - Get queue capacity
+- `uint64_t loss_count() const` - Get count of skipped items due to overwrite (debug-only if enabled)
 - `void reset()` - Reset the queue, invalidating all existing data
 
 ### Important Constraints
 
 **Lock-Free Atomics Implementation**: SlickQueue uses a packed 64-bit atomic internally to guarantee lock-free operations on all platforms. This packs both the write index (48 bits) and the reservation size (16 bits) into a single atomic value.
+
+**Lossy Semantics**: SlickQueue does not apply backpressure. If producers advance by at least the queue size before a consumer reads, older entries will be overwritten and the consumer will skip ahead to the latest value for a slot. Size the queue and read frequency to bound loss.
+
+**Debug Loss Detection**: Define `SLICK_QUEUE_ENABLE_LOSS_DETECTION=1` to enable a per-instance skipped-item counter (enabled by default in Debug builds). Use `loss_count()` to inspect how many items were skipped.
 
 **⚠️ Reserve Size Limitation**: When using `read_last()`, the number of slots in any `reserve(n)` call **must not exceed 65,535** (2^16 - 1). This is because the size is stored in 16 bits within the packed atomic.
 

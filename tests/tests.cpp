@@ -29,6 +29,19 @@ TEST(SlickQueueTests, ReadShouldFailWithoutPublish) {
   EXPECT_EQ(read_cursor, 0);
 }
 
+TEST(SlickQueueTests, InvalidSizeThrows) {
+  EXPECT_THROW({
+    SlickQueue<int> queue(3);
+  }, std::invalid_argument);
+}
+
+TEST(SlickQueueTests, ReserveZeroThrows) {
+  SlickQueue<int> queue(2);
+  EXPECT_THROW({
+    queue.reserve(0);
+  }, std::invalid_argument);
+}
+
 TEST(SlickQueueTests, PublishAndRead) {
   SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;
@@ -112,6 +125,48 @@ TEST(SlickQueueTests, BufferWrap) {
   EXPECT_EQ(strncmp(read.first, "789", 3), 0);
 }
 
+TEST(SlickQueueTests, LossyOverwriteSkipsOldData) {
+  SlickQueue<int> queue(2);
+  uint64_t read_cursor = 0;
+
+  auto s0 = queue.reserve();
+  *queue[s0] = 10;
+  queue.publish(s0);
+
+  auto s1 = queue.reserve();
+  *queue[s1] = 20;
+  queue.publish(s1);
+
+  auto s2 = queue.reserve();
+  *queue[s2] = 30;
+  queue.publish(s2);
+
+  auto read = queue.read(read_cursor);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(*read.first, 30);
+  EXPECT_EQ(read_cursor, 3);
+
+  read = queue.read(read_cursor);
+  EXPECT_EQ(read.first, nullptr);
+}
+
+#if SLICK_QUEUE_ENABLE_LOSS_DETECTION
+TEST(SlickQueueTests, LossDetectionCountsOverrun) {
+  SlickQueue<int> queue(4);
+  for (int i = 0; i < 8; ++i) {
+    auto slot = queue.reserve();
+    *queue[slot] = i;
+    queue.publish(slot);
+  }
+
+  uint64_t read_cursor = 0;
+  auto read = queue.read(read_cursor);
+  EXPECT_NE(read.first, nullptr);
+  EXPECT_EQ(*read.first, 4);
+  EXPECT_EQ(queue.loss_count(), 4u);
+}
+#endif
+
 TEST(SlickQueueTests, AtomicCursorWorkStealing) {
   SlickQueue<int> queue(1024);
   std::atomic<uint64_t> shared_cursor{0};
@@ -125,6 +180,8 @@ TEST(SlickQueueTests, AtomicCursorWorkStealing) {
       queue.publish(slot);
     }
   });
+
+
 
   // Multiple consumers sharing atomic cursor
   auto consumer = [&]() {
