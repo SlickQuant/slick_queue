@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <atomic>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,7 @@
 #include <thread>
 #include <chrono>
 #include <limits>
+#include <new>
 
 #if defined(_MSC_VER)
 #ifndef NOMINMAX
@@ -37,6 +39,9 @@
 #include <cerrno>
 #endif
 
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+#include <immintrin.h>
+#endif
 
 #ifndef SLICK_QUEUE_ENABLE_LOSS_DETECTION
 #if !defined(NDEBUG)
@@ -44,6 +49,10 @@
 #else
 #define SLICK_QUEUE_ENABLE_LOSS_DETECTION 0
 #endif
+#endif
+
+#ifndef SLICK_QUEUE_ENABLE_CPU_RELAX
+#define SLICK_QUEUE_ENABLE_CPU_RELAX 1
 #endif
 
 namespace slick {
@@ -66,14 +75,20 @@ class SlickQueue {
 
     using reserved_info = uint64_t;
 
+#if defined(__cpp_lib_hardware_interference_size)
+    static constexpr std::size_t cacheline_size = std::hardware_destructive_interference_size;
+#else
+    static constexpr std::size_t cacheline_size = 64;
+#endif
+
     uint32_t size_;
     uint32_t mask_;
     T* data_ = nullptr;
     slot* control_ = nullptr;
     std::atomic<reserved_info>* reserved_ = nullptr;
-    std::atomic<reserved_info> reserved_local_{0};
+    alignas(cacheline_size) std::atomic<reserved_info> reserved_local_{0};
 #if SLICK_QUEUE_ENABLE_LOSS_DETECTION
-    std::atomic<uint64_t> loss_count_{0};
+    alignas(cacheline_size) std::atomic<uint64_t> loss_count_{0};
 #endif
     bool own_ = false;
     bool use_shm_ = false;
@@ -223,11 +238,23 @@ public:
         if (n > size_) [[unlikely]] {
             throw std::runtime_error("required size " + std::to_string(n) + " > queue size " + std::to_string(size_));
         }
+        if (n == 1) {
+            constexpr reserved_info step = (1ULL << 16);
+            auto prev = reserved_->fetch_add(step, std::memory_order_release);
+            auto index = get_index(prev);
+            auto prev_size = get_size(prev);
+            if (prev_size != 1) {
+                auto expected = make_reserved_info(index + 1, prev_size);
+                reserved_->compare_exchange_strong(expected, make_reserved_info(index + 1, 1),
+                    std::memory_order_release, std::memory_order_relaxed);
+            }
+            return index;
+        }
         auto reserved = reserved_->load(std::memory_order_relaxed);
-        uint64_t next;
-        uint64_t index;
+        uint64_t next = 0;
+        uint64_t index = 0;
         bool buffer_wrapped = false;
-        do {
+        for (;;) {
             buffer_wrapped = false;
             index = get_index(reserved);
             auto idx = index & mask_;
@@ -240,7 +267,11 @@ public:
             else {
                 next = make_reserved_info(index + n, n);
             }
-        } while(!reserved_->compare_exchange_weak(reserved, next, std::memory_order_release, std::memory_order_relaxed));
+            if (reserved_->compare_exchange_weak(reserved, next, std::memory_order_release, std::memory_order_relaxed)) {
+                break;
+            }
+            cpu_relax();
+        }
         if (buffer_wrapped) {
             // queue wrapped, set current slock.data_index to the reserved index to let the reader
             // know the next available data is in different slot.
@@ -370,6 +401,7 @@ public:
                 // Successfully claimed the item
                 return std::make_pair(&data_[current_index & mask_], current_slot->size);
             }
+            cpu_relax();
             // CAS failed, another consumer claimed it, retry
         }
     }
@@ -418,6 +450,22 @@ private:
 
     static constexpr uint32_t get_size(uint64_t reserved) noexcept {
         return static_cast<uint32_t>(reserved & 0xFFFF);
+    }
+
+    static inline void cpu_relax() noexcept {
+#if SLICK_QUEUE_ENABLE_CPU_RELAX
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+        _mm_pause();
+#elif defined(__i386__) || defined(__x86_64__)
+        __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+        __asm__ __volatile__("yield" ::: "memory");
+#else
+        std::this_thread::yield();
+#endif
+#else
+        (void)0;
+#endif
     }
 
 #if defined(_MSC_VER)

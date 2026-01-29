@@ -225,6 +225,8 @@ SlickQueue(const char* shm_name);                  // Reader/Attacher
 
 **Debug Loss Detection**: Define `SLICK_QUEUE_ENABLE_LOSS_DETECTION=1` to enable a per-instance skipped-item counter (enabled by default in Debug builds). Use `loss_count()` to inspect how many items were skipped.
 
+**CPU Relax Backoff**: Define `SLICK_QUEUE_ENABLE_CPU_RELAX=0` to disable the pause/yield backoff used on contended CAS loops (default is enabled). Disabling may reduce latency in very short contention bursts but can increase CPU usage under load.
+
 **⚠️ Reserve Size Limitation**: When using `read_last()`, the number of slots in any `reserve(n)` call **must not exceed 65,535** (2^16 - 1). This is because the size is stored in 16 bits within the packed atomic.
 
 - For typical use cases with `reserve()` or `reserve(1)`, this limit is not a concern

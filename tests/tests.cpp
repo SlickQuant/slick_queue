@@ -125,6 +125,23 @@ TEST(SlickQueueTests, BufferWrap) {
   EXPECT_EQ(strncmp(read.first, "789", 3), 0);
 }
 
+TEST(SlickQueueTests, ReadLastUsesLatestReserveSize) {
+  SlickQueue<int> queue(8);
+
+  auto first = queue.reserve(2);
+  *queue[first] = 1;
+  *queue[first + 1] = 2;
+  queue.publish(first, 2);
+
+  auto last = queue.reserve(1);
+  *queue[last] = 3;
+  queue.publish(last, 1);
+
+  auto latest = queue.read_last();
+  ASSERT_NE(latest, nullptr);
+  EXPECT_EQ(*latest, 3);
+}
+
 TEST(SlickQueueTests, LossyOverwriteSkipsOldData) {
   SlickQueue<int> queue(2);
   uint64_t read_cursor = 0;

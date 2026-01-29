@@ -1,8 +1,11 @@
-# v1.2.3 - unreleased
+# v1.2.3 - 2026-01-29
 - Initialize reserved counters for local and shared-memory queues
 - Validate shared-memory size is power-of-two and element size matches when attaching
 - Add lossy semantics documentation and debug loss detection counter
 - Add lossy overwrite tests for in-process and shared-memory queues
+- Align hot atomics to cache lines and add light spin backoff under contention
+- Add reserve(1) fast path using fetch_add
+- Add SLICK_QUEUE_ENABLE_CPU_RELAX to control pause/yield backoff
 - Guard against zero-length reservations
 - Add limits header
 
