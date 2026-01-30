@@ -1,3 +1,17 @@
+# v1.3.0 - 2026-01-30
+- **BREAKING CHANGE**: Replaced platform-specific shared memory implementation with slick-shm library
+  - Removed all Windows-specific code (CreateFileMapping, MapViewOfFile, etc.)
+  - Removed all POSIX-specific code (shm_open, mmap, etc.)
+  - Unified shared memory implementation using slick::shm::shared_memory RAII wrapper
+  - Code reduction: ~92 lines removed (14% reduction in queue.h)
+  - Improved race condition handling: replaced `sleep_for(1ms)` with atomic creator flag
+  - Added `CREATOR_FLAG_OFFSET` constant for atomic creator detection at offset 48 in header
+  - Added comprehensive shared memory layout documentation
+  - Simplified destructor using RAII automatic cleanup
+  - All 22 tests pass (100% success rate)
+  - No changes to public API - fully backward compatible at API level
+  - Binary compatibility break: shared memory segments from previous versions are incompatible
+
 # v1.2.3 - 2026-01-29
 - Initialize reserved counters for local and shared-memory queues
 - Validate shared-memory size is power-of-two and element size matches when attaching

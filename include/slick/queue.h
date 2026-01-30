@@ -11,6 +11,26 @@
 
 #pragma once
 
+// Prevent Windows min/max macros from conflicting with std::numeric_limits
+// This must be defined BEFORE any Windows headers (including those from slick-shm)
+#if defined(_MSC_VER) || defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
+#include <slick/shm/shared_memory.hpp>
+
+// Undef Windows min/max macros that slick-shm may have pulled in
+#if defined(_WIN32) || defined(_MSC_VER)
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
+#endif
+
 #include <cstdint>
 #include <cstddef>
 #include <atomic>
@@ -21,23 +41,6 @@
 #include <chrono>
 #include <limits>
 #include <new>
-
-#if defined(_MSC_VER)
-#ifndef NOMINMAX
-#define NOMINMAX
-#undef min  // to avoid conflicts with std::min
-#undef max  // to avoid conflicts with std::max
-#endif
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <tchar.h>
-#else
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <cerrno>
-#endif
 
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
 #include <immintrin.h>
@@ -92,16 +95,30 @@ class SlickQueue {
 #endif
     bool own_ = false;
     bool use_shm_ = false;
-#if defined(_MSC_VER)
-    HANDLE hMapFile_ = nullptr;
-    LPVOID lpvMem_ = nullptr;
-#else
-    int shm_fd_ = -1;
-    void* lpvMem_ = nullptr;
-    std::string shm_name_;
-#endif
+    slick::shm::shared_memory shm_;  // RAII wrapper for shared memory
+    void* lpvMem_ = nullptr;          // Cached data pointer
+    std::string shm_name_;            // Stored for cleanup
 
+    // Shared memory layout constants
+    //
+    // The shared memory segment is organized as follows:
+    //
+    // [HEADER: 64 bytes]
+    //   Offset 0-7   (8 bytes):  std::atomic<reserved_info> - reservation cursor
+    //   Offset 8-11  (4 bytes):  size_ - queue capacity (uint32_t)
+    //   Offset 12-15 (4 bytes):  element_size - sizeof(T) for validation (uint32_t)
+    //   Offset 16-47 (32 bytes): PADDING - reserved for future use
+    //   Offset 48-51 (4 bytes):  creator_flag - atomic flag for creator detection (uint32_t)
+    //   Offset 52-63 (12 bytes): PADDING - reserved for future use
+    //
+    // [CONTROL ARRAY: sizeof(slot) * size_]
+    //   Array of slot structures containing atomic indices and sizes
+    //
+    // [DATA ARRAY: sizeof(T) * size_]
+    //   Array of queue elements
+    //
     static constexpr uint32_t HEADER_SIZE = 64;
+    static constexpr uint32_t CREATOR_FLAG_OFFSET = 48;  // Offset in header for atomic creator flag
 
     static constexpr bool is_power_of_two(uint32_t value) noexcept {
         return value != 0 && ((value & (value - 1)) == 0);
@@ -153,35 +170,18 @@ public:
     }
 
     virtual ~SlickQueue() noexcept {
-#if defined(_MSC_VER)
-        if (lpvMem_) {
-            UnmapViewOfFile(lpvMem_);
-            lpvMem_ = nullptr;
-        }
-
-        if (hMapFile_) {
-            CloseHandle(hMapFile_);
-            hMapFile_ = nullptr;
-        }
-#else
-        if (lpvMem_) {
-            auto BF_SZ = static_cast<size_t>(HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_);
-            munmap(lpvMem_, BF_SZ);
-            lpvMem_ = nullptr;
-        }
-        if (shm_fd_ != -1) {
-            close(shm_fd_);
-            shm_fd_ = -1;
-        }
-        if (own_ && !shm_name_.empty()) {
-	    shm_unlink(shm_name_.c_str());
-	}
+        if (use_shm_) {
+            // slick-shm RAII handles unmapping and closing automatically
+            // Only need to explicitly remove on POSIX if we're the owner
+#if !defined(_MSC_VER)
+            if (own_ && shm_.is_valid() && !shm_name_.empty()) {
+                slick::shm::shared_memory::remove(shm_name_.c_str());
+            }
 #endif
-
-        if (!use_shm_) {
+            // shm_ destructor unmaps and closes handle automatically
+        } else {
             delete[] data_;
             data_ = nullptr;
-
             delete[] control_;
             control_ = nullptr;
         }
@@ -468,217 +468,125 @@ private:
 #endif
     }
 
-#if defined(_MSC_VER)
-    void allocate_shm_data(const char* const shm_name, bool open_only) {
-        DWORD BF_SZ;
-        hMapFile_ = NULL;
 
-#ifndef UNICODE
-        std::string shmName = shm_name;
-#else
-        int shm_name_sz = static_cast<int>(strlen(shm_name));
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, shm_name, shm_name_sz, NULL, 0);
-        std::wstring shmName(size_needed, 0);
-        MultiByteToWideChar(CP_UTF8, 0, shm_name, shm_name_sz, &shmName[0], size_needed);
-#endif
+    void allocate_shm_data(const char* const shm_name, bool open_only) {
+        shm_name_ = shm_name;  // Store for destructor cleanup
 
         if (open_only) {
-#ifndef UNICODE
-            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCSTR)shmName.c_str());
-#else
-            hMapFile_ = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, (LPCWSTR)shmName.c_str());
-#endif
-            own_ = false;
-            auto err = GetLastError();
-            if (hMapFile_ == NULL) {
-                throw std::runtime_error("Failed to open shm. err=" + std::to_string(err));
+            // Opener constructor - open existing only
+            try {
+                shm_ = slick::shm::shared_memory(
+                    shm_name,
+                    slick::shm::open_existing,
+                    slick::shm::access_mode::read_write
+                );
+            } catch (const slick::shm::shared_memory_error& e) {
+                throw std::runtime_error(std::string("Failed to open shared memory: ") + e.what());
             }
 
-            auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, HEADER_SIZE);
-            if (!lpvMem) {
-                auto err = GetLastError();
-                throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
+            lpvMem_ = shm_.data();
+            if (!lpvMem_) {
+                throw std::runtime_error("Failed to map shared memory");
             }
-            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
-            auto element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
-            if (element_size != sizeof(T)) {
-                throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
-            }
+
+            // Read size from header
+            size_ = *reinterpret_cast<uint32_t*>(
+                reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>));
+            uint32_t element_size = *reinterpret_cast<uint32_t*>(
+                reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(uint32_t));
+
+            // Validate
             if (!is_power_of_two(size_)) {
                 throw std::runtime_error("Shared memory size must be power of 2. Got " + std::to_string(size_));
             }
+            if (element_size != sizeof(T)) {
+                throw std::runtime_error("Shared memory element size mismatch. Expected " +
+                    std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
+            }
+
             mask_ = size_ - 1;
-            BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
-            UnmapViewOfFile(lpvMem);
-        }
-        else {
-            BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
 
-            SECURITY_ATTRIBUTES sa;
-            sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-            sa.lpSecurityDescriptor = NULL;
-            sa.bInheritHandle = FALSE;
-
-            hMapFile_ = CreateFileMapping(
-                INVALID_HANDLE_VALUE,               // use paging file
-                &sa,                                // default security
-                PAGE_READWRITE,                     // read/write access
-                0,                                  // maximum object size (high-order DWORD)
-                BF_SZ,                              // maximum object size (low-order DWORD)
-#ifndef UNICODE
-                (LPCSTR)shmName.c_str()             // name of mapping object
-#else           
-                (LPCWSTR)shmName.c_str()            // name of mapping object
-#endif
-            );
-
-            own_ = false;
-            auto err = GetLastError();
-            if (hMapFile_ == NULL) {
-		        throw std::runtime_error("Failed to create shm. err=" + std::to_string(err));
-            }
-
-            if (err != ERROR_ALREADY_EXISTS) {
-                own_ = true;
-            } else {
-                // when multiple process trying to create the same shared memory segment,
-                // there is a chance that the segment is created but not yet initialized.
-                // so we need to wait until the segment is initialized.
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
-                // Shared memory already exists, need to read and validate size
-                auto lpvMem = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, HEADER_SIZE);
-                if (!lpvMem) {
-                    auto err = GetLastError();
-                    throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(err));
-                }
-                uint32_t queue_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>));
-                uint32_t element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
-                UnmapViewOfFile(lpvMem);
-
-                if (queue_size != size_) {
-                    throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(queue_size));
-                }
-
-                if (element_size != sizeof(T)) {
-                    throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
-                }
-            }
-        }
-
-        lpvMem_ = MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, BF_SZ);
-        if (!lpvMem_) {
-            auto err = GetLastError();
-            throw std::runtime_error("Failed to map shm. err=" + std::to_string(err));
-        }
-
-        if (own_) {
-            reserved_ = new (lpvMem_) std::atomic<reserved_info>();
-            reserved_->store(0, std::memory_order_relaxed);
-            // save queue size
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
-            // save element size
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(size_)) = sizeof(T);
-            control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];
-            data_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_) T[size_];
-        }
-        else {
+            // Map to existing structures
             reserved_ = reinterpret_cast<std::atomic<reserved_info>*>(lpvMem_);
             control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + HEADER_SIZE);
             data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_);
-        }
-    }
-#else
-    void allocate_shm_data(const char* const shm_name, bool open_only) {
-        size_t BF_SZ;
-        shm_name_ = shm_name;
-        int flags = open_only ? O_RDWR : (O_RDWR | O_CREAT | O_EXCL);
-        shm_fd_ = shm_open(shm_name, flags, 0666);
-        if (shm_fd_ == -1) {
-            if (!open_only && errno == EEXIST) {
-                // Try opening existing
-                shm_fd_ = shm_open(shm_name, O_RDWR, 0666);
-                if (shm_fd_ == -1) {
-                    throw std::runtime_error("Failed to open existing shm. err=" + std::to_string(errno));
-                }
+
+        } else {
+            // Creator constructor - create or open
+            const size_t total_size = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
+
+            try {
+                shm_ = slick::shm::shared_memory(
+                    shm_name,
+                    total_size,
+                    slick::shm::open_or_create,
+                    slick::shm::access_mode::read_write
+                );
+            } catch (const slick::shm::shared_memory_error& e) {
+                throw std::runtime_error(std::string("Failed to create/open shared memory: ") + e.what());
+            }
+
+            lpvMem_ = shm_.data();
+            if (!lpvMem_) {
+                throw std::runtime_error("Failed to map shared memory");
+            }
+
+            // Use atomic flag in header padding area to determine creator
+            std::atomic<uint32_t>* creator_flag =
+                reinterpret_cast<std::atomic<uint32_t>*>(
+                    reinterpret_cast<uint8_t*>(lpvMem_) + CREATOR_FLAG_OFFSET);
+
+            uint32_t expected = 0;
+            bool we_are_creator = creator_flag->compare_exchange_strong(
+                expected, 1, std::memory_order_acq_rel);
+
+            if (we_are_creator) {
+                // Initialize as creator
+                own_ = true;
+
+                // Initialize atomic header
+                reserved_ = new (lpvMem_) std::atomic<reserved_info>();
+                reserved_->store(0, std::memory_order_relaxed);
+
+                // Write metadata
+                *reinterpret_cast<uint32_t*>(
+                    reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
+                *reinterpret_cast<uint32_t*>(
+                    reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(uint32_t)) = sizeof(T);
+
+                // Placement-new arrays
+                control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];
+                data_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_) T[size_];
+
+            } else {
+                // Opened existing - validate
                 own_ = false;
 
-                // when multiple process trying to create the same shared memory segment,
-                // there is a chance that the segment is created but not yet initialized.
-                // so we need to wait until the segment is initialized.
+                // Brief wait for creator to initialize (preserve existing behavior)
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
-                // Read size from shared memory and verify it matches
-                void* temp_map = mmap(nullptr, HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
-                if (temp_map == MAP_FAILED) {
-                    throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
-                }
-                uint32_t shm_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
-                uint32_t element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>) + sizeof(shm_size));
-                munmap(temp_map, HEADER_SIZE);
+                // Read and validate metadata
+                uint32_t shm_size = *reinterpret_cast<uint32_t*>(
+                    reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>));
+                uint32_t element_size = *reinterpret_cast<uint32_t*>(
+                    reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(uint32_t));
 
                 if (shm_size != size_) {
-                    throw std::runtime_error("Shared memory size mismatch. Expected " + std::to_string(size_) + " but got " + std::to_string(shm_size));
+                    throw std::runtime_error("Shared memory size mismatch. Expected " +
+                        std::to_string(size_) + " but got " + std::to_string(shm_size));
                 }
-
                 if (element_size != sizeof(T)) {
-                    throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
+                    throw std::runtime_error("Shared memory element size mismatch. Expected " +
+                        std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
                 }
-            } else {
-                throw std::runtime_error("Failed to open/create shm. err=" + std::to_string(errno));
+
+                // Map to existing structures
+                reserved_ = reinterpret_cast<std::atomic<reserved_info>*>(lpvMem_);
+                control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + HEADER_SIZE);
+                data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_);
             }
-        } else {
-            own_ = !open_only;
-        }
-
-        if (open_only) {
-            // Map first 64 bytes to read the size
-            void* temp_map = mmap(nullptr, HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
-            if (temp_map == MAP_FAILED) {
-                throw std::runtime_error("Failed to map shm for size read. err=" + std::to_string(errno));
-            }
-            size_ = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>));
-            uint32_t element_size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(temp_map) + sizeof(std::atomic<reserved_info>) + sizeof(size_));
-            munmap(temp_map, HEADER_SIZE);
-
-            if (!is_power_of_two(size_)) {
-                throw std::runtime_error("Shared memory size must be power of 2. Got " + std::to_string(size_));
-            }
-
-            if (element_size != sizeof(T)) {
-                throw std::runtime_error("Shared memory element size mismatch. Expected " + std::to_string(sizeof(T)) + " but got " + std::to_string(element_size));
-            }
-
-            mask_ = size_ - 1;
-        }
-
-        BF_SZ = HEADER_SIZE + sizeof(slot) * size_ + sizeof(T) * size_;
-
-        if (own_) {
-            if (ftruncate(shm_fd_, BF_SZ) == -1) {
-                throw std::runtime_error("Failed to size shm. err=" + std::to_string(errno));
-            }
-        }
-
-        lpvMem_ = mmap(nullptr, BF_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_, 0);
-        if (lpvMem_ == MAP_FAILED) {
-            throw std::runtime_error("Failed to map shm. err=" + std::to_string(errno));
-        }
-
-        if (own_) {
-            reserved_ = new (lpvMem_) std::atomic<reserved_info>();
-            reserved_->store(0, std::memory_order_relaxed);
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>)) = size_;
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lpvMem_) + sizeof(std::atomic<reserved_info>) + sizeof(size_)) = sizeof(T);
-            control_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE) slot[size_];
-            data_ = new ((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_) T[size_];
-        } else {
-            reserved_ = reinterpret_cast<std::atomic<reserved_info>*>(lpvMem_);
-            control_ = reinterpret_cast<slot*>((uint8_t*)lpvMem_ + HEADER_SIZE);
-            data_ = reinterpret_cast<T*>((uint8_t*)lpvMem_ + HEADER_SIZE + sizeof(slot) * size_);
         }
     }
-#endif
 
 };
 

@@ -1,11 +1,33 @@
 cmake_minimum_required(VERSION 3.10)
 
 project(slick-queue
-        VERSION 1.2.3
+        VERSION 1.3.0
         DESCRIPTION "A C++ Lock-Free MPMC queue"
         LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+
+# Options:
+option(BUILD_SLICK_QUEUE_TESTS "Build tests" ON)
+
+find_package(slick-shm CONFIG QUIET)
+
+if (NOT slick-shm_FOUND)
+    include(FetchContent)
+
+    # Disable slick-shm tests and examples
+    set(SLICK_SHM_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SLICK_SHM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SLICK_SHM_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        slick-shm
+        GIT_REPOSITORY https://github.com/SlickQuant/slick-shm.git
+        GIT_TAG v0.1.3
+    )
+    FetchContent_MakeAvailable(slick-shm)
+else()
+    message(STATUS "slick-shm: ${slick-shm_VERSION}")
+endif()
 
 add_library(slick-queue INTERFACE)
 add_library(slick::queue ALIAS slick-queue)
@@ -19,11 +41,39 @@ target_include_directories(slick-queue INTERFACE
 )
 set_target_properties(slick-queue PROPERTIES EXPORT_NAME queue)
 
+target_link_libraries(slick-queue INTERFACE slick::shm)
 if(UNIX AND NOT APPLE)
     target_link_libraries(slick-queue INTERFACE rt atomic)
 endif()
 
-option(BUILD_SLICK_QUEUE_TESTS "Build tests" ON)
+target_precompile_headers(slick-queue INTERFACE 
+    <cstdint>
+    <cstddef>
+    <atomic>
+    <stdexcept>
+    <string>
+    <cassert>
+    <thread>
+    <chrono>
+    <limits>
+    <new>
+)
+
+if (WIN32)
+    target_precompile_headers(slick-queue INTERFACE 
+        <windows.h>
+        <tchar.h>
+    )
+else()
+    target_precompile_headers(slick-queue INTERFACE 
+        <sys/mman.h>
+        <sys/stat.h>
+        <fcntl.h>
+        <unistd.h>
+        <cerrno>
+    )
+endif()
+
 if(BUILD_SLICK_QUEUE_TESTS)
     enable_testing()
     add_subdirectory(tests)
@@ -88,4 +138,4 @@ install(EXPORT slick-queueTargets
     DESTINATION lib/cmake/slick-queue
 )
 
-message(STATUS "slick-queue: ${PROJECT_VERSION}")
+message(STATUS "${PROJECT_NAME}: ${PROJECT_VERSION}")
