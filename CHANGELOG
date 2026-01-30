@@ -11,6 +11,10 @@
   - All 22 tests pass (100% success rate)
   - No changes to public API - fully backward compatible at API level
   - Binary compatibility break: shared memory segments from previous versions are incompatible
+- Fixed CMake configuration to properly handle slick-shm dependency in export targets
+  - Removed `SLICK_SHM_INSTALL OFF` to allow slick-shm installation when fetched
+  - Added `find_dependency(slick-shm REQUIRED)` in slick-queueConfig.cmake.in
+  - Removed obsolete platform-specific precompiled headers (windows.h, sys/mman.h, etc.)
 
 # v1.2.3 - 2026-01-29
 - Initialize reserved counters for local and shared-memory queues

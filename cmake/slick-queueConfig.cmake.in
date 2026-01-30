@@ -1,5 +1,9 @@
 @PACKAGE_INIT@
 
+# Find slick-shm dependency
+include(CMakeFindDependencyMacro)
+find_dependency(slick-shm REQUIRED)
+
 include("${CMAKE_CURRENT_LIST_DIR}/slick-queueTargets.cmake")
 
 if(NOT TARGET slick::slick-queue AND TARGET slick::queue)

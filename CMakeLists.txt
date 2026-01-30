@@ -15,10 +15,9 @@ find_package(slick-shm CONFIG QUIET)
 if (NOT slick-shm_FOUND)
     include(FetchContent)
 
-    # Disable slick-shm tests and examples
+    # Disable slick-shm tests and examples, but allow installation
     set(SLICK_SHM_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SLICK_SHM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(SLICK_SHM_INSTALL OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
         slick-shm
         GIT_REPOSITORY https://github.com/SlickQuant/slick-shm.git
@@ -59,20 +58,6 @@ target_precompile_headers(slick-queue INTERFACE
     <new>
 )
 
-if (WIN32)
-    target_precompile_headers(slick-queue INTERFACE 
-        <windows.h>
-        <tchar.h>
-    )
-else()
-    target_precompile_headers(slick-queue INTERFACE 
-        <sys/mman.h>
-        <sys/stat.h>
-        <fcntl.h>
-        <unistd.h>
-        <cerrno>
-    )
-endif()
 
 if(BUILD_SLICK_QUEUE_TESTS)
     enable_testing()
