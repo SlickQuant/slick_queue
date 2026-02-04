@@ -1,3 +1,12 @@
+# v1.4.0 - 2026-02-04
+- **BREAKING CHANGE**: Added last_published_index and header magic in shared memory header
+  - Fixed shared-memory attach race by adding an init-state handshake with readiness wait and legacy fallback
+  - Added last-published tracking so `read_last()` only returns published data; added a regression test
+  - Changed read_last() return signature to std::pair<T*, uint32_t>
+- Updated `read_last()` documentation for legacy shared-memory segments
+- Relaxed memory ordering in the shared atomic cursor path for lower overhead
+- Fixed release workflow changelog extraction to match version headers with trailing dates
+
 # v1.3.0 - 2026-01-30
 - **BREAKING CHANGE**: Replaced platform-specific shared memory implementation with slick-shm library
   - Removed all Windows-specific code (CreateFileMapping, MapViewOfFile, etc.)

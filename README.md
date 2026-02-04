@@ -212,7 +212,7 @@ SlickQueue(const char* shm_name);                  // Reader/Attacher
 - `void publish(uint64_t slot, uint32_t n = 1)` - Publish `n` written items to consumers
 - `std::pair<T*, uint32_t> read(uint64_t& cursor)` - Read next available item (independent cursor)
 - `std::pair<T*, uint32_t> read(std::atomic<uint64_t>& cursor)` - Read next available item (shared atomic cursor for work-stealing)
-- `T* read_last()` - Read the most recently published item without a cursor
+- `std::pair<T*, uint32_t> read_last()` - Read the most recently published item without a cursor
 - `uint32_t size()` - Get queue capacity
 - `uint64_t loss_count() const` - Get count of skipped items due to overwrite (debug-only if enabled)
 - `void reset()` - Reset the queue, invalidating all existing data
@@ -227,10 +227,10 @@ SlickQueue(const char* shm_name);                  // Reader/Attacher
 
 **CPU Relax Backoff**: Define `SLICK_QUEUE_ENABLE_CPU_RELAX=0` to disable the pause/yield backoff used on contended CAS loops (default is enabled). Disabling may reduce latency in very short contention bursts but can increase CPU usage under load.
 
-**⚠️ Reserve Size Limitation**: When using `read_last()`, the number of slots in any `reserve(n)` call **must not exceed 65,535** (2^16 - 1). This is because the size is stored in 16 bits within the packed atomic.
+**⚠️ Reserve Size Limitation (legacy shared memory)**: Older shared-memory segments used the 16-bit size stored in the packed reservation atomic to compute `read_last()`. New segments track the last published index separately, so this limit no longer applies in normal use.
 
+- If you attach to a shared-memory segment created by older versions, keep `reserve(n) <= 65,535` when using `read_last()`
 - For typical use cases with `reserve()` or `reserve(1)`, this limit is not a concern
-- If you need to reserve more than 65,535 slots at once, do not use `read_last()`
 - The 48-bit index supports up to 2^48 (281 trillion) iterations, sufficient for any practical application
 
 ## Performance Characteristics

@@ -202,3 +202,84 @@ TEST(ShmTests, SizeMismatch) {
     }
   }, std::runtime_error);
 }
+
+TEST(ShmTests, ReadLastUsesLatestReserveSize) {
+  SlickQueue<int> queue(8, "sq_read_last");
+  SlickQueue<int> reader_queue(8, "sq_read_last");
+
+  auto first = queue.reserve(2);
+  *queue[first] = 1;
+  *queue[first + 1] = 2;
+  queue.publish(first, 2);
+
+  auto last = queue.reserve(1);
+  *queue[last] = 3;
+  queue.publish(last, 1);
+
+  auto [latest, size] = reader_queue.read_last();
+  ASSERT_NE(latest, nullptr);
+  EXPECT_EQ(*latest, 3);
+  EXPECT_EQ(size, 1);
+}
+
+TEST(ShmTests, ReadLastIgnoresUnpublishedReservation) {
+  SlickQueue<int> queue(8, "sq_read_last2");
+  SlickQueue<int> reader_queue(8, "sq_read_last2");
+
+  auto first = queue.reserve(2);
+  *queue[first] = 1;
+  *queue[first + 1] = 2;
+  queue.publish(first, 2);
+
+  auto last = queue.reserve(1);
+  *queue[last] = 3;
+
+  auto [latest, size] = reader_queue.read_last();
+  ASSERT_NE(latest, nullptr);
+  EXPECT_EQ(*latest, 1);
+  EXPECT_EQ(size, 2);
+}
+
+TEST(ShmTests, ReadLastUsesLatestReserveSizeMultiple) {
+  SlickQueue<char> queue(256, "sq_read_last_multi");
+  SlickQueue<char> reader_queue(256, "sq_read_last_multi");
+
+  const char* first_str = "One";
+  uint32_t length = static_cast<uint32_t>(std::strlen(first_str) + 1);
+  auto first = queue.reserve(length);
+  std::strcpy(queue[first], first_str);
+  queue.publish(first, length);
+
+  const char* last_str = "Four";
+  length = static_cast<uint32_t>(strlen(first_str) + 1);
+  auto last = queue.reserve(length);
+  std::strcpy(queue[last], last_str);
+  queue.publish(last, length);
+
+  auto [latest, size] = reader_queue.read_last();
+  ASSERT_NE(latest, nullptr);
+  std::string s(latest, size);
+  EXPECT_EQ(strncmp(latest, last_str, size), 0);
+}
+
+TEST(ShmTests, ReadLastIgnoresUnpublishedReservationMultiple) {
+  SlickQueue<char> queue(256, "sq_read_last_multi2");
+  SlickQueue<char> reader_queue(256, "sq_read_last_multi2");
+
+  const char* first_str = "One";
+  uint32_t length = static_cast<uint32_t>(std::strlen(first_str) + 1);
+  auto first = queue.reserve(length);
+  std::strcpy(queue[first], first_str);
+  queue.publish(first, length);
+
+  const char* last_str = "Four";
+  length = static_cast<uint32_t>(strlen(first_str) + 1);
+  auto last = queue.reserve(length);
+  std::strcpy(queue[last], last_str);
+
+  auto [latest, size] = reader_queue.read_last();
+  ASSERT_NE(latest, nullptr);
+  std::string s(latest, size);
+  EXPECT_EQ(strncmp(latest, first_str, size), 0);
+}
+
